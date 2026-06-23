@@ -183,3 +183,64 @@ def test_no_args_prints_help_and_exits_nonzero(capsys):
         cli.main([])
     # argparse-style: 2 on usage error
     assert exc.value.code != 0
+
+
+# ---------------------------------------------------------------------------
+# `init`
+# ---------------------------------------------------------------------------
+
+
+def test_init_creates_file(tmp_path, capsys):
+    out_path = tmp_path / "plan_checkpoints.json"
+    rc = cli.main(["init", "--stack", "go", "--state", str(out_path)])
+    assert rc == 0
+    assert out_path.exists()
+    data = json.loads(out_path.read_text())
+    assert data["project"]["test_cmd"] == "go test ./..."
+    assert data["checkpoints"][0]["status"] == "pending"
+    assert "Created" in capsys.readouterr().out
+
+
+def test_init_explicit_stack_go(tmp_path):
+    out_path = tmp_path / "plan_checkpoints.json"
+    cli.main(["init", "--stack", "go", "--state", str(out_path)])
+    data = json.loads(out_path.read_text())
+    assert data["project"]["build_cmd"] == "go build ./..."
+    assert data["project"]["test_cmd"] == "go test ./..."
+    assert data["project"]["lint_cmd"] == "golangci-lint run"
+
+
+def test_init_explicit_stack_python_has_no_build_cmd(tmp_path):
+    out_path = tmp_path / "plan_checkpoints.json"
+    cli.main(["init", "--stack", "python", "--state", str(out_path)])
+    data = json.loads(out_path.read_text())
+    # Python has no build step — key must be absent, not None
+    assert "build_cmd" not in data["project"]
+    assert data["project"]["test_cmd"] == "pytest"
+
+
+def test_init_already_exists_error(tmp_path, capsys):
+    out_path = tmp_path / "plan_checkpoints.json"
+    out_path.write_text("{}")
+    rc = cli.main(["init", "--stack", "go", "--state", str(out_path)])
+    assert rc == 2
+    assert "force" in capsys.readouterr().err.lower()
+
+
+def test_init_force_overwrites(tmp_path):
+    out_path = tmp_path / "plan_checkpoints.json"
+    out_path.write_text("{}")
+    rc = cli.main(["init", "--stack", "rust", "--state", str(out_path), "--force"])
+    assert rc == 0
+    data = json.loads(out_path.read_text())
+    assert data["project"]["test_cmd"] == "cargo test"
+
+
+def test_init_generated_file_validates(tmp_path):
+    from agent_loop.state import load_state
+
+    out_path = tmp_path / "plan_checkpoints.json"
+    cli.main(["init", "--stack", "node", "--state", str(out_path)])
+    state = load_state(out_path)
+    assert state.branch == "feature-branch"
+    assert len(state.checkpoints) == 1

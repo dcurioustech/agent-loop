@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,7 @@ from . import safety
 from .orchestrator import LoopHalted, run_loop
 from .providers import get_provider, known_provider_names
 from .providers.base import ProviderError
+from .stacks import STACKS, detect_stack, known_stack_names
 from .state import InvalidPlanState, load_state
 
 DEFAULT_STATE = Path("plan_checkpoints.json")
@@ -55,12 +57,74 @@ def _build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="One-line summary of each checkpoint.")
     _add_state_arg(status)
 
+    init_p = sub.add_parser(
+        "init", help="Generate plan_checkpoints.json for this project."
+    )
+    init_p.add_argument(
+        "--stack",
+        choices=known_stack_names(),
+        default=None,
+        help="Tech stack (auto-detected if omitted).",
+    )
+    init_p.add_argument("--branch", default="feature-branch")
+    init_p.add_argument("--plan-file", default="docs/implementation_plan.md")
+    init_p.add_argument(
+        "--state",
+        type=Path,
+        default=DEFAULT_STATE,
+        help=f"Output path (default: {DEFAULT_STATE})",
+    )
+    init_p.add_argument(
+        "--force", action="store_true", help="Overwrite existing file."
+    )
+
     return parser
 
 
 # ---------------------------------------------------------------------------
 # Command implementations
 # ---------------------------------------------------------------------------
+
+
+_STARTER_CHECKPOINT = {
+    "id": "phase0",
+    "name": "Project Setup",
+    "status": "pending",
+    "scope": "Create the feature branch and document the agreed approach in the plan file.",
+    "exit_criteria": [
+        "Feature branch exists and is checked out",
+        "Plan file documents the agreed approach",
+    ],
+    "attempts": 0,
+    "review_notes": "",
+}
+
+
+def _cmd_init(args) -> int:
+    if args.state.exists() and not args.force:
+        print(f"error: {args.state} already exists (use --force to overwrite)", file=sys.stderr)
+        return 2
+
+    stack_name = args.stack or detect_stack(Path.cwd()) or "make"
+    cfg = STACKS[stack_name]
+
+    project: dict = {
+        k: cfg[k]
+        for k in ("build_cmd", "test_cmd", "lint_cmd")
+        if cfg.get(k) is not None
+    }
+    project["verify_in_review"] = True
+
+    payload = {
+        "plan_file": args.plan_file,
+        "branch": args.branch,
+        "project": project,
+        "checkpoints": [_STARTER_CHECKPOINT],
+    }
+
+    args.state.write_text(json.dumps(payload, indent=2) + "\n")
+    print(f"Created {args.state} (stack: {stack_name})")
+    return 0
 
 
 def _cmd_validate(args) -> int:
@@ -142,6 +206,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return _cmd_validate(args)
     if args.cmd == "status":
         return _cmd_status(args)
+    if args.cmd == "init":
+        return _cmd_init(args)
     parser.print_help(sys.stderr)
     raise SystemExit(2)
 

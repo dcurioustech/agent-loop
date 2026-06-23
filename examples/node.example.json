@@ -1,0 +1,50 @@
+{
+  "plan_file": "docs/implementation_plan.md",
+  "branch": "my-feature-branch",
+  "project": {
+    "build_cmd": "npm run build",
+    "test_cmd": "npm test",
+    "lint_cmd": "npm run lint",
+    "verify_in_review": true
+  },
+  "checkpoints": [
+    {
+      "id": "phase0",
+      "name": "Project Setup",
+      "status": "approved",
+      "scope": "Create the feature branch, add baseline scaffolding, document conventions in docs/implementation_plan.md.",
+      "exit_criteria": [
+        "Feature branch exists and is checked out",
+        "docs/implementation_plan.md documents the agreed approach"
+      ],
+      "attempts": 1,
+      "review_notes": "Approved. Branch created and plan documented."
+    },
+    {
+      "id": "phase1",
+      "name": "Implement Core Module",
+      "status": "built",
+      "scope": "Build the main feature module per the plan. Include unit tests.",
+      "exit_criteria": [
+        "Module compiles and lints cleanly",
+        "Unit tests cover the public API",
+        "npm run lint reports no issues"
+      ],
+      "attempts": 1,
+      "review_notes": "Built. Files added: src/feature/*, tests/feature/*. Awaiting reviewer.",
+      "test_cmd": "npm test -- --testPathPattern=feature"
+    },
+    {
+      "id": "phase2",
+      "name": "Wire Into App",
+      "status": "pending",
+      "scope": "Expose the new module through the app entry point and add an integration test.",
+      "exit_criteria": [
+        "App starts with the new module enabled",
+        "Integration test covers the end-to-end happy path"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    }
+  ]
+}

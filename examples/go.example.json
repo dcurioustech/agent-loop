@@ -1,0 +1,50 @@
+{
+  "plan_file": "docs/implementation_plan.md",
+  "branch": "my-feature-branch",
+  "project": {
+    "build_cmd": "go build ./...",
+    "test_cmd": "go test ./...",
+    "lint_cmd": "golangci-lint run",
+    "verify_in_review": true
+  },
+  "checkpoints": [
+    {
+      "id": "phase0",
+      "name": "Project Setup",
+      "status": "approved",
+      "scope": "Create the feature branch, add baseline scaffolding, document conventions in docs/implementation_plan.md.",
+      "exit_criteria": [
+        "Feature branch exists and is checked out",
+        "docs/implementation_plan.md documents the agreed approach"
+      ],
+      "attempts": 1,
+      "review_notes": "Approved. Branch created and plan documented."
+    },
+    {
+      "id": "phase1",
+      "name": "Implement Core Package",
+      "status": "built",
+      "scope": "Build the main feature package per the plan. Include unit tests.",
+      "exit_criteria": [
+        "Package compiles cleanly with go build ./...",
+        "Unit tests cover the public API",
+        "golangci-lint reports no issues"
+      ],
+      "attempts": 1,
+      "review_notes": "Built. Files added: internal/feature/*.go, internal/feature/*_test.go. Awaiting reviewer.",
+      "test_cmd": "go test ./internal/feature/..."
+    },
+    {
+      "id": "phase2",
+      "name": "Wire Into Main",
+      "status": "pending",
+      "scope": "Expose the new package through the main entry point and add an integration test.",
+      "exit_criteria": [
+        "Binary builds and runs without errors",
+        "Integration test covers the end-to-end happy path"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    }
+  ]
+}

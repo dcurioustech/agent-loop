@@ -46,15 +46,34 @@ The loop refuses to start unless the assigned provider's danger gate is set, so 
 
 ## Bootstrapping a new consumer repo
 
-Copy the shipped example as your starting point and edit `branch`, `plan_file`, and the project block to match your stack:
+Run `agent-loop init` inside your project directory. It auto-detects the tech stack from marker files and writes a pre-filled `plan_checkpoints.json`:
+
+```
+agent-loop init                    # auto-detect stack
+agent-loop init --stack go         # explicit stack
+agent-loop init --branch my-feat   # custom branch name
+agent-loop validate                # confirm schema is valid
+```
+
+Supported stacks (detected from marker files):
+
+| Stack    | Detected by       | Default commands                              |
+|----------|-------------------|-----------------------------------------------|
+| flutter  | `pubspec.yaml`    | `flutter build` / `flutter test` / `flutter analyze` |
+| go       | `go.mod`          | `go build ./...` / `go test ./...` / `golangci-lint run` |
+| node     | `package.json`    | `npm run build` / `npm test` / `npm run lint` |
+| rust     | `Cargo.toml`      | `cargo build` / `cargo test` / `cargo clippy` |
+| python   | `pyproject.toml` etc. | `pytest` / `ruff check .`               |
+| make     | `Makefile`        | `make build` / `make test` / `make lint`      |
+
+Stack-specific example files live in `examples/` (e.g. `examples/go.example.json`). Alternatively, copy the generic example and edit manually:
 
 ```
 cp ~/Documents/workspace/agent-loop-tool/examples/plan_checkpoints.example.json \
    ./plan_checkpoints.json
-agent-loop validate
 ```
 
-The example covers all three checkpoint statuses (`pending` / `built` / `approved`) and shows a per-checkpoint `test_cmd` override on top of the project-level default.
+The generic example covers all three checkpoint statuses (`pending` / `built` / `approved`) and shows a per-checkpoint `test_cmd` override on top of the project-level default.
 
 ## `plan_checkpoints.json` schema
 
@@ -63,9 +82,9 @@ The example covers all three checkpoint statuses (`pending` / `built` / `approve
   "plan_file": "docs/implementation_plan.md",
   "branch": "feature-branch",
   "project": {
-    "build_cmd": "flutter build web --release",
-    "test_cmd":  "flutter test",
-    "lint_cmd":  "flutter analyze",
+    "build_cmd": "make build",
+    "test_cmd":  "make test",
+    "lint_cmd":  "make lint",
     "verify_in_review": true
   },
   "checkpoints": [

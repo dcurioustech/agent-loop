@@ -1,0 +1,50 @@
+{
+  "plan_file": "docs/implementation_plan.md",
+  "branch": "my-feature-branch",
+  "project": {
+    "build_cmd": "cargo build",
+    "test_cmd": "cargo test",
+    "lint_cmd": "cargo clippy",
+    "verify_in_review": true
+  },
+  "checkpoints": [
+    {
+      "id": "phase0",
+      "name": "Project Setup",
+      "status": "approved",
+      "scope": "Create the feature branch, add baseline scaffolding, document conventions in docs/implementation_plan.md.",
+      "exit_criteria": [
+        "Feature branch exists and is checked out",
+        "docs/implementation_plan.md documents the agreed approach"
+      ],
+      "attempts": 1,
+      "review_notes": "Approved. Branch created and plan documented."
+    },
+    {
+      "id": "phase1",
+      "name": "Implement Core Module",
+      "status": "built",
+      "scope": "Build the main feature module per the plan. Include unit tests.",
+      "exit_criteria": [
+        "Module compiles cleanly with cargo build",
+        "Unit tests pass with cargo test",
+        "cargo clippy reports no warnings"
+      ],
+      "attempts": 1,
+      "review_notes": "Built. Files added: src/feature.rs, tests/feature_test.rs. Awaiting reviewer.",
+      "test_cmd": "cargo test feature"
+    },
+    {
+      "id": "phase2",
+      "name": "Wire Into Binary",
+      "status": "pending",
+      "scope": "Expose the new module through the binary entry point and add an integration test.",
+      "exit_criteria": [
+        "Binary builds and runs without errors",
+        "Integration test covers the end-to-end happy path"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    }
+  ]
+}

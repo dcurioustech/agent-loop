@@ -28,3 +28,31 @@ def test_example_is_project_agnostic():
     raw = EXAMPLE.read_text().lower()
     for stack in ("flutter", "npm ", "cargo ", "go test", "pytest"):
         assert stack not in raw, f"example shouldn't mention {stack!r}"
+
+
+# ---------------------------------------------------------------------------
+# Stack-specific examples
+# ---------------------------------------------------------------------------
+
+EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
+STACK_EXAMPLES = ["flutter", "go", "node", "rust", "python"]
+
+
+def test_stack_examples_valid():
+    for name in STACK_EXAMPLES:
+        path = EXAMPLES_DIR / f"{name}.example.json"
+        assert path.exists(), f"missing example: {path}"
+        state = load_state(path)
+        assert len(state.checkpoints) >= 1
+        statuses = {cp["status"] for cp in state.checkpoints}
+        assert statuses <= {"pending", "built", "approved"}
+
+
+def test_stack_examples_have_test_cmd():
+    for name in STACK_EXAMPLES:
+        path = EXAMPLES_DIR / f"{name}.example.json"
+        state = load_state(path)
+        # At least one checkpoint or the project block should resolve a test_cmd
+        assert state.project.get("test_cmd") or any(
+            cp.get("test_cmd") for cp in state.checkpoints
+        ), f"{name}.example.json has no test_cmd anywhere"
