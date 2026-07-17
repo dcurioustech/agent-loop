@@ -45,6 +45,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default="codex",
         help="CLI to play the reviewer role (default: codex).",
     )
+    run.add_argument(
+        "--developer-model",
+        default=None,
+        help="Model for the developer CLI. Overrides plan 'models.developer'; "
+        "if neither is set, the CLI picks its own default.",
+    )
+    run.add_argument(
+        "--reviewer-model",
+        default=None,
+        help="Model for the reviewer CLI. Overrides plan 'models.reviewer'; "
+        "if neither is set, the CLI picks its own default.",
+    )
     run.add_argument("--max-review-attempts", type=int, default=3)
     run.add_argument("--timeout", type=int, default=1800, help="Per-agent-call timeout in seconds.")
     run.add_argument("--log-dir", type=Path, default=None)
@@ -92,8 +104,18 @@ def _cmd_status(args) -> int:
 
 def _cmd_run(args) -> int:
     try:
-        dev = get_provider(args.developer)
-        rev = get_provider(args.reviewer)
+        state = load_state(args.state)
+    except InvalidPlanState as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    # Precedence per role: CLI flag > plan 'models.<role>' > the CLI's default.
+    dev_model = args.developer_model or state.model_for("developer")
+    rev_model = args.reviewer_model or state.model_for("reviewer")
+
+    try:
+        dev = get_provider(args.developer, dev_model)
+        rev = get_provider(args.reviewer, rev_model)
     except ProviderError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -109,7 +131,10 @@ def _cmd_run(args) -> int:
     log_dir = args.log_dir or safety.default_log_dir()
     log_path = safety.open_log_file(log_dir)
     safety.tee_stdout_to(log_path)
-    print(f"### agent-loop | developer={dev.name} reviewer={rev.name} log={log_path}")
+    def _role(p) -> str:
+        return f"{p.name}({p.model})" if p.model else p.name
+
+    print(f"### agent-loop | developer={_role(dev)} reviewer={_role(rev)} log={log_path}")
 
     try:
         with safety.lockfile(safety.default_lock_path()):

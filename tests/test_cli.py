@@ -159,6 +159,43 @@ def test_run_accepts_provider_overrides(tmp_path, monkeypatch, _stub_run_precond
     assert captured["timeout"] == 60
 
 
+def test_run_uses_plan_models_when_no_flags(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path, models={"developer": "opus-x", "reviewer": "codex-y"})
+    captured: dict = {}
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    cli.main(["run", "--state", str(p)])
+    assert captured["developer"].model == "opus-x"
+    assert captured["reviewer"].model == "codex-y"
+
+
+def test_run_flags_override_plan_models(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path, models={"developer": "opus-x", "reviewer": "codex-y"})
+    captured: dict = {}
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    cli.main(
+        [
+            "run",
+            "--state",
+            str(p),
+            "--developer-model",
+            "flag-dev",
+            "--reviewer-model",
+            "flag-rev",
+        ]
+    )
+    assert captured["developer"].model == "flag-dev"
+    assert captured["reviewer"].model == "flag-rev"
+
+
+def test_run_defaults_to_no_model(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    captured: dict = {}
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    cli.main(["run", "--state", str(p)])
+    assert captured["developer"].model is None
+    assert captured["reviewer"].model is None
+
+
 def test_run_rejects_unknown_provider(tmp_path, capsys):
     p = _plan(tmp_path)
     with pytest.raises(SystemExit):

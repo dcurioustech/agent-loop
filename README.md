@@ -31,7 +31,22 @@ agent-loop status                                    # one-line summary per chec
 agent-loop run                                       # developer=claude, reviewer=codex (defaults)
 agent-loop run --developer codex --reviewer claude
 agent-loop run --developer grok  --reviewer gemini
+agent-loop run --developer-model claude-opus-4-8 --reviewer-model gpt-5-codex
 ```
+
+### Choosing the model
+
+`--developer` / `--reviewer` pick the CLI; the *model* is resolved per role with this
+precedence (first match wins):
+
+1. `--developer-model` / `--reviewer-model` on the command line
+2. a `models` block in `plan_checkpoints.json` (see schema below)
+3. whatever default the CLI itself resolves (its config file / env / built-in)
+
+So if you set nothing, each CLI keeps using its own default model — the loop never
+overrides it. Model names are provider-specific, so a value pinned for one role only
+makes sense for the CLI you assigned to that role. Under the hood the model is passed as
+`--model <name>` (claude/grok) or `-m <name>` (codex/gemini).
 
 Safety envs (per provider, off by default):
 
@@ -67,6 +82,10 @@ The example covers all three checkpoint statuses (`pending` / `built` / `approve
     "test_cmd":  "flutter test",
     "lint_cmd":  "flutter analyze",
     "verify_in_review": true
+  },
+  "models": {                    // optional; per-role model, overridden by CLI flags
+    "developer": "claude-opus-4-8",
+    "reviewer":  "gpt-5-codex"
   },
   "checkpoints": [
     {
