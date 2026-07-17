@@ -20,6 +20,7 @@ Requires at least one of these CLIs on PATH, depending on the roles you pick:
 | codex    | <https://github.com/openai/codex>      |
 | grok     | <https://docs.x.ai/docs/grok-cli>      |
 | gemini   | <https://github.com/google-gemini/gemini-cli> |
+| antigravity | <https://antigravity.google/docs/cli-overview> (binary: `agy`) |
 
 ## Usage
 
@@ -31,6 +32,7 @@ agent-loop status                                    # one-line summary per chec
 agent-loop run                                       # developer=claude, reviewer=codex (defaults)
 agent-loop run --developer codex --reviewer claude
 agent-loop run --developer grok  --reviewer gemini
+agent-loop run --developer antigravity --reviewer claude
 ```
 
 Safety envs (per provider, off by default):
@@ -40,6 +42,7 @@ ALLOW_DANGEROUS_CLAUDE=1   # claude --dangerously-skip-permissions
 ALLOW_DANGEROUS_CODEX=1    # codex exec --dangerously-bypass-approvals-and-sandbox
 ALLOW_DANGEROUS_GROK=1     # grok --always-approve
 ALLOW_DANGEROUS_GEMINI=1   # gemini --approval-mode yolo
+ALLOW_DANGEROUS_ANTIGRAVITY=1  # agy --dangerously-skip-permissions
 ```
 
 The loop refuses to start unless the assigned provider's danger gate is set, so unattended runs cannot stall on a permission prompt.

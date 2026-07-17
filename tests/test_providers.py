@@ -20,8 +20,8 @@ from agent_loop.providers import (
 # ---------------------------------------------------------------------------
 
 
-def test_all_four_providers_are_registered():
-    assert known_provider_names() == ["claude", "codex", "gemini", "grok"]
+def test_all_five_providers_are_registered():
+    assert known_provider_names() == ["antigravity", "claude", "codex", "gemini", "grok"]
 
 
 def test_get_provider_rejects_unknown_name():
@@ -41,6 +41,7 @@ def test_get_provider_rejects_unknown_name():
         ("codex", ["codex", "exec", "--full-auto", "PROMPT"]),
         ("grok", ["grok", "-p", "PROMPT"]),
         ("gemini", ["gemini", "-p", "PROMPT"]),
+        ("antigravity", ["agy", "-p", "PROMPT"]),
     ],
 )
 def test_default_argv_is_safe_mode(monkeypatch, name, expected):
@@ -50,6 +51,7 @@ def test_default_argv_is_safe_mode(monkeypatch, name, expected):
         "ALLOW_DANGEROUS_CODEX",
         "ALLOW_DANGEROUS_GROK",
         "ALLOW_DANGEROUS_GEMINI",
+        "ALLOW_DANGEROUS_ANTIGRAVITY",
     ):
         monkeypatch.delenv(env, raising=False)
 
@@ -86,6 +88,11 @@ def test_default_argv_is_safe_mode(monkeypatch, name, expected):
             "ALLOW_DANGEROUS_GEMINI",
             ["gemini", "-p", "PROMPT", "--approval-mode", "yolo"],
         ),
+        (
+            "antigravity",
+            "ALLOW_DANGEROUS_ANTIGRAVITY",
+            ["agy", "-p", "PROMPT", "--dangerously-skip-permissions"],
+        ),
     ],
 )
 def test_dangerous_argv_when_gate_set(monkeypatch, name, env_var, expected):
@@ -102,6 +109,7 @@ def test_dangerous_argv_when_gate_set(monkeypatch, name, env_var, expected):
         ("codex", "ALLOW_DANGEROUS_CODEX"),
         ("grok", "ALLOW_DANGEROUS_GROK"),
         ("gemini", "ALLOW_DANGEROUS_GEMINI"),
+        ("antigravity", "ALLOW_DANGEROUS_ANTIGRAVITY"),
     ],
 )
 def test_danger_env_is_strict_one(monkeypatch, name, env_var):
@@ -142,7 +150,7 @@ def test_preflight_passes_when_binary_present(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["claude", "codex", "grok", "gemini"])
+@pytest.mark.parametrize("name", ["claude", "codex", "grok", "gemini", "antigravity"])
 def test_prompt_with_quotes_and_spaces_stays_single_token(name):
     nasty = 'hello "world" with spaces; rm -rf /'
     argv = get_provider(name).build_argv(nasty)
