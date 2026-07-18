@@ -19,6 +19,7 @@ REQUIRED_CHECKPOINT_FIELDS = (
     "review_notes",
 )
 COMMAND_FIELDS = ("build_cmd", "test_cmd", "lint_cmd")
+MODEL_ROLES = ("developer", "reviewer")
 
 
 class InvalidPlanState(ValueError):
@@ -41,6 +42,7 @@ class PlanState:
     branch: str
     checkpoints: list[dict]
     project: dict = field(default_factory=dict)
+    models: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Convenience accessors for the project block
@@ -67,6 +69,12 @@ class PlanState:
             raise ValueError(f"Unknown command field: {field_name}")
         cp = self.get(cid)
         return cp.get(field_name) or self.project.get(field_name)
+
+    def model_for(self, role: str) -> Optional[str]:
+        """Model pinned for a role in the plan, or None to defer to the CLI."""
+        if role not in MODEL_ROLES:
+            raise ValueError(f"Unknown model role: {role}")
+        return self.models.get(role)
 
     # ------------------------------------------------------------------
     # Checkpoint queries / mutations
@@ -103,6 +111,8 @@ class PlanState:
         }
         if self.project:
             payload["project"] = self.project
+        if self.models:
+            payload["models"] = self.models
         payload["checkpoints"] = self.checkpoints
 
         with self.path.open("w") as f:
@@ -125,7 +135,9 @@ def load_state(path: Path | str) -> PlanState:
         plan_file=raw["plan_file"],
         branch=raw["branch"],
         checkpoints=raw["checkpoints"],
-        project=raw.get("project", {}),
+        # `or {}` (not a get-default) so an explicit `null` becomes {} too.
+        project=raw.get("project") or {},
+        models=raw.get("models") or {},
     )
 
 
@@ -175,3 +187,15 @@ def _validate(raw: Any) -> None:
     project = raw.get("project")
     if project is not None and not isinstance(project, dict):
         raise InvalidPlanState("'project' must be a JSON object when present")
+
+    models = raw.get("models")
+    if models is not None:
+        if not isinstance(models, dict):
+            raise InvalidPlanState("'models' must be a JSON object when present")
+        for role, model in models.items():
+            if role not in MODEL_ROLES:
+                raise InvalidPlanState(
+                    f"'models' has unknown role {role!r}; allowed: {MODEL_ROLES}"
+                )
+            if not isinstance(model, str) or not model:
+                raise InvalidPlanState(f"'models.{role}' must be a non-empty string")

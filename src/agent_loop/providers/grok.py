@@ -14,4 +14,5 @@ class GrokProvider(Provider):
         argv = [self.binary, "-p", prompt]
         if self.dangerous_enabled:
             argv.append("--always-approve")
+        argv.extend(self._model_argv())
         return argv

@@ -7,6 +7,10 @@
     "lint_cmd": "make lint",
     "verify_in_review": true
   },
+  "models": {
+    "developer": "claude-opus-4-8",
+    "reviewer": "gpt-5-codex"
+  },
   "checkpoints": [
     {
       "id": "phase0",

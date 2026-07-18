@@ -15,4 +15,5 @@ class ClaudeProvider(Provider):
         if self.dangerous_enabled:
             argv.append("--dangerously-skip-permissions")
         argv.extend(["--output-format", "text"])
+        argv.extend(self._model_argv())
         return argv
