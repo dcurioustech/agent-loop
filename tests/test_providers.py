@@ -125,6 +125,52 @@ def test_danger_env_is_strict_one(monkeypatch, name, env_var):
 
 
 # ---------------------------------------------------------------------------
+# Model pinning: appended only when a model is supplied, and with the right flag
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        (
+            "claude",
+            ["claude", "-p", "PROMPT", "--output-format", "text", "--model", "M"],
+        ),
+        ("codex", ["codex", "exec", "--full-auto", "-m", "M", "PROMPT"]),
+        ("grok", ["grok", "-p", "PROMPT", "--model", "M"]),
+        ("gemini", ["gemini", "-p", "PROMPT", "-m", "M"]),
+    ],
+)
+def test_model_is_appended_with_provider_flag(monkeypatch, name, expected):
+    for env in (
+        "ALLOW_DANGEROUS_CLAUDE",
+        "ALLOW_DANGEROUS_CODEX",
+        "ALLOW_DANGEROUS_GROK",
+        "ALLOW_DANGEROUS_GEMINI",
+    ):
+        monkeypatch.delenv(env, raising=False)
+
+    provider = get_provider(name, "M")
+    assert provider.model == "M"
+    assert provider.build_argv("PROMPT") == expected
+
+
+@pytest.mark.parametrize("name", ["claude", "codex", "grok", "gemini"])
+def test_no_model_flag_when_model_absent(name):
+    # Both None and empty string mean "let the CLI pick its own default".
+    for provider in (get_provider(name), get_provider(name, None), get_provider(name, "")):
+        argv = provider.build_argv("PROMPT")
+        assert "--model" not in argv and "-m" not in argv
+        assert provider.model is None
+
+
+def test_codex_model_precedes_positional_prompt():
+    # The model flag must sit before the prompt or `codex exec` mis-parses it.
+    argv = get_provider("codex", "M").build_argv("PROMPT")
+    assert argv.index("M") < argv.index("PROMPT")
+
+
+# ---------------------------------------------------------------------------
 # preflight
 # ---------------------------------------------------------------------------
 

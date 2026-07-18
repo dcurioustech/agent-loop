@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from .base import Provider, ProviderError
 
 PROVIDERS: dict[str, type[Provider]] = {}
@@ -10,11 +12,11 @@ def register(cls: type[Provider]) -> type[Provider]:
     return cls
 
 
-def get_provider(name: str) -> Provider:
+def get_provider(name: str, model: Optional[str] = None) -> Provider:
     if name not in PROVIDERS:
         known = ", ".join(sorted(PROVIDERS)) or "<none>"
         raise ProviderError(f"Unknown provider '{name}'. Known: {known}")
-    return PROVIDERS[name]()
+    return PROVIDERS[name](model)
 
 
 def known_provider_names() -> list[str]:

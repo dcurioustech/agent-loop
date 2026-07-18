@@ -146,6 +146,62 @@ def test_per_checkpoint_command_overrides_project_default(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# models block
+# ---------------------------------------------------------------------------
+
+
+def test_models_block_defaults_to_empty(tmp_path):
+    p = _write(tmp_path, _minimal_plan())
+    state = load_state(p)
+    assert state.models == {}
+    assert state.model_for("developer") is None
+    assert state.model_for("reviewer") is None
+
+
+def test_models_block_is_loaded(tmp_path):
+    payload = _minimal_plan()
+    payload["models"] = {"developer": "opus-x", "reviewer": "codex-y"}
+    p = _write(tmp_path, payload)
+    state = load_state(p)
+    assert state.model_for("developer") == "opus-x"
+    assert state.model_for("reviewer") == "codex-y"
+
+
+def test_models_block_survives_save_round_trip(tmp_path):
+    payload = _minimal_plan()
+    payload["models"] = {"developer": "opus-x"}
+    p = _write(tmp_path, payload)
+    load_state(p).save()
+    assert load_state(p).model_for("developer") == "opus-x"
+
+
+def test_explicit_null_models_block_is_treated_as_empty(tmp_path):
+    # `"models": null` must not crash model_for(); it means "not configured".
+    payload = _minimal_plan()
+    payload["models"] = None
+    p = _write(tmp_path, payload)
+    state = load_state(p)
+    assert state.models == {}
+    assert state.model_for("developer") is None
+
+
+def test_load_rejects_unknown_model_role(tmp_path):
+    payload = _minimal_plan()
+    payload["models"] = {"architect": "opus-x"}
+    p = _write(tmp_path, payload)
+    with pytest.raises(InvalidPlanState, match="role"):
+        load_state(p)
+
+
+def test_load_rejects_non_string_model(tmp_path):
+    payload = _minimal_plan()
+    payload["models"] = {"developer": ""}
+    p = _write(tmp_path, payload)
+    with pytest.raises(InvalidPlanState, match="developer"):
+        load_state(p)
+
+
+# ---------------------------------------------------------------------------
 # get / set / save
 # ---------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ class CodexProvider(Provider):
     name = "codex"
     binary = "codex"
     danger_env = "ALLOW_DANGEROUS_CODEX"
+    model_flag = "-m"
 
     def build_argv(self, prompt: str) -> list[str]:
         flag = (
@@ -16,4 +17,5 @@ class CodexProvider(Provider):
             if self.dangerous_enabled
             else "--full-auto"
         )
-        return [self.binary, "exec", flag, prompt]
+        # Model must precede the positional prompt so `exec` parses it as a flag.
+        return [self.binary, "exec", flag, *self._model_argv(), prompt]
