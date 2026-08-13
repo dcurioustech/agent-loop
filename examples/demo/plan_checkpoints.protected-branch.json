@@ -1,0 +1,15 @@
+{
+  "plan_file": "docs/implementation_plan.md",
+  "branch": "main",
+  "checkpoints": [
+    {
+      "id": "cp1_most_common",
+      "name": "Add most_common(text, n) helper",
+      "status": "pending",
+      "scope": "Demo-only file: exists solely to show the protected-branch refusal. Not a real checkpoint.",
+      "exit_criteria": ["n/a"],
+      "attempts": 0,
+      "review_notes": ""
+    }
+  ]
+}

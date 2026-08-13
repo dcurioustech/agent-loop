@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import safety
+from .git_ops import GitError
 from .orchestrator import LoopHalted, run_loop
 from .providers import get_provider, known_provider_names
 from .providers.base import ProviderError
@@ -152,7 +153,7 @@ def _cmd_run(args) -> int:
     except LoopHalted as e:
         print(f"halted: {e}", file=sys.stderr)
         return 1
-    except InvalidPlanState as e:
+    except (InvalidPlanState, GitError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     return 0

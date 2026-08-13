@@ -1,0 +1,37 @@
+{
+  "plan_file": "docs/implementation_plan.md",
+  "branch": "feature/word-stats-top-n",
+  "project": {
+    "build_cmd": "make build",
+    "test_cmd": "make test",
+    "verify_in_review": true
+  },
+  "checkpoints": [
+    {
+      "id": "cp1_most_common",
+      "name": "Add most_common(text, n) helper",
+      "status": "pending",
+      "scope": "Add a most_common(text, n) function to src/word_stats.py that returns the n most frequent words as (word, count) tuples, ordered by count descending then alphabetically for ties. Reuse word_counts(). Add unit tests in tests/test_word_stats.py.",
+      "exit_criteria": [
+        "most_common(\"the cat sat on the mat the cat ran\", 2) == [(\"the\", 3), (\"cat\", 2)]",
+        "ties broken alphabetically",
+        "make test passes"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    },
+    {
+      "id": "cp2_cli_flag",
+      "name": "Wire --top N CLI flag",
+      "status": "pending",
+      "scope": "Add an optional --top N argument to word_stats.py's CLI. When passed, print only the top N words via most_common(), most-frequent first, same 'word: count' format. Behavior with no --top flag must be unchanged.",
+      "exit_criteria": [
+        "python3 src/word_stats.py <file> --top 2 prints exactly 2 lines, most-frequent word first",
+        "no-flag behavior is unchanged",
+        "make test passes"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    }
+  ]
+}

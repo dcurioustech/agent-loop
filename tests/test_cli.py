@@ -215,6 +215,25 @@ def test_run_returns_nonzero_on_loop_halt(tmp_path, monkeypatch, _stub_run_preco
     assert rc != 0
 
 
+def test_run_prints_clean_error_on_git_error(tmp_path, monkeypatch, capsys, _stub_run_preconditions):
+    """git_ops failures (protected branch, dirty worktree) should print a clean
+    'error: ...' message and exit 2 like other setup failures -- not an
+    unhandled Python traceback."""
+    p = _plan(tmp_path)
+
+    def fake_run_loop(**_):
+        from agent_loop.git_ops import GitError
+
+        raise GitError("Worktree must be clean before running the loop.")
+
+    monkeypatch.setattr(cli, "run_loop", fake_run_loop)
+    rc = cli.main(["run", "--state", str(p)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "Worktree must be clean" in err
+
+
 def test_no_args_prints_help_and_exits_nonzero(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main([])

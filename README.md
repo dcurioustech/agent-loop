@@ -105,3 +105,12 @@ The example covers all three checkpoint statuses (`pending` / `built` / `approve
 ```
 
 Per-checkpoint `build_cmd` / `test_cmd` / `lint_cmd` overrides are also supported. The reviewer prompt includes these commands so the agent knows how to verify.
+
+## Contributing
+
+Issues and PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, how to
+run the tests, and how to add a new provider.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
