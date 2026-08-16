@@ -48,28 +48,8 @@ def require_clean_worktree() -> None:
         )
 
 
-def commit_checkpoint_changes(message: str, log_dir: Path) -> None:
-    root = repo_root()
-    log_dir = log_dir.resolve()
-    try:
-        log_dir.relative_to(root)
-        inside = True
-    except ValueError:
-        inside = False
-
-    if inside:
-        _run(
-            [
-                "git",
-                "add",
-                "-A",
-                "--",
-                ".",
-                f":(exclude){log_dir.relative_to(root)}",
-            ]
-        )
-    else:
-        _run(["git", "add", "-A"])
+def commit_checkpoint_changes(message: str, log_dir: Path | None = None) -> None:
+    _run(["git", "add", "-A"])
 
     cached = _run(["git", "diff", "--cached", "--quiet"], check=False)
     if cached.returncode == 0:

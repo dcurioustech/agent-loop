@@ -135,6 +135,27 @@ def test_run_invokes_loop_with_defaults(tmp_path, monkeypatch, _stub_run_precond
     assert captured["timeout"] == 1800
 
 
+def test_run_uses_default_log_dir_when_no_flag(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    captured: dict = {}
+    default_dir = tmp_path / "repo_root" / "logs"
+    monkeypatch.setattr(cli.safety, "default_log_dir", lambda: default_dir)
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    rc = cli.main(["run", "--state", str(p)])
+    assert rc == 0
+    assert captured["log_dir"] == default_dir
+
+
+def test_run_accepts_log_dir_override(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    captured: dict = {}
+    custom_logs = tmp_path / "custom_logs"
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    rc = cli.main(["run", "--state", str(p), "--log-dir", str(custom_logs)])
+    assert rc == 0
+    assert captured["log_dir"] == custom_logs
+
+
 def test_run_accepts_provider_overrides(tmp_path, monkeypatch, _stub_run_preconditions):
     p = _plan(tmp_path)
     captured: dict = {}

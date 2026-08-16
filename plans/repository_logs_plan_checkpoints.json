@@ -9,7 +9,7 @@
     {
       "id": "phase0",
       "name": "Move runtime logs into the repository",
-      "status": "pending",
+      "status": "built",
       "scope": "Change the default log location from the system temporary directory to a logs directory at the Git repository root, while preserving the explicit --log-dir override and treating generated logs as tracked audit artifacts that are included in checkpoint commits.",
       "exit_criteria": [
         "The default log directory resolves to <git-repository-root>/logs regardless of the caller's current working directory",
@@ -18,7 +18,7 @@
         "Tests cover repository-root resolution, directory creation, explicit overrides, and inclusion of generated logs in checkpoint staging"
       ],
       "attempts": 0,
-      "review_notes": ""
+      "review_notes": "Phase 0 complete.\n\nFiles touched:\n- src/agent_loop/safety.py: default_log_dir() resolves to git_ops.repo_root() / 'logs'.\n- src/agent_loop/git_ops.py: commit_checkpoint_changes() includes log directory in staging (removed exclude pattern).\n- tests/test_safety.py: Added unit tests for default log directory resolution from root/subdirectories, GitError when outside git, and directory creation on file open/tee.\n- tests/test_git_ops.py: Added unit tests for repo root resolution, staging/committing generated logs in checkpoint commits, cwd invariance, and clean worktree no-op.\n- tests/test_cli.py: Added tests for CLI --log-dir override and default log dir fallback.\n- tests/test_orchestrator.py: Added tests verifying run_loop passes explicit log_dir or defaults to safety.default_log_dir().\n\nExit criteria met:\n1. safety.default_log_dir() resolves to <git-repo-root>/logs from any working directory.\n2. Explicit --log-dir overrides repository default in CLI and orchestrator.\n3. safety.open_log_file() creates the directory, logs/ is not gitignored, and commit_checkpoint_changes() tracks and commits audit logs.\n4. Comprehensive pytest suite tests repository resolution, directory creation, override precedence, and log commit staging."
     },
     {
       "id": "phase1",

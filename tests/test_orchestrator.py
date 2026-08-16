@@ -354,3 +354,74 @@ def test_loop_processes_checkpoints_in_declared_order(tmp_path, _stub_git):
         timeout=30,
     )
     assert seen == ["dev:phase0", "rev:phase0", "dev:phase1", "rev:phase1"]
+
+
+def test_run_loop_passes_custom_log_dir_to_commit(tmp_path, monkeypatch):
+    state_path = _plan(tmp_path)
+    custom_log_dir = tmp_path / "custom_logs"
+    recorded_log_dirs: list[Path] = []
+
+    monkeypatch.setattr(orchestrator.git_ops, "ensure_branch", lambda branch: None)
+    monkeypatch.setattr(orchestrator.git_ops, "require_clean_worktree", lambda: None)
+    monkeypatch.setattr(
+        orchestrator.git_ops,
+        "commit_checkpoint_changes",
+        lambda msg, log_dir=None: recorded_log_dirs.append(log_dir),
+    )
+
+    def dev_writes_built(_prompt):
+        s = load_state(state_path)
+        s.set_field("phase0", "status", "built")
+        s.save()
+        return 0
+
+    def reviewer_approves(_prompt):
+        s = load_state(state_path)
+        s.set_field("phase0", "status", "approved")
+        s.save()
+        return 0
+
+    run_loop(
+        state_path=state_path,
+        developer=FakeProvider(name="dev", on_call=dev_writes_built),
+        reviewer=FakeProvider(name="rev", on_call=reviewer_approves),
+        log_dir=custom_log_dir,
+    )
+
+    assert recorded_log_dirs == [custom_log_dir, custom_log_dir]
+
+
+def test_run_loop_defaults_to_safety_default_log_dir(tmp_path, monkeypatch):
+    state_path = _plan(tmp_path)
+    default_log_dir = tmp_path / "default_repo_logs"
+    monkeypatch.setattr(orchestrator.safety, "default_log_dir", lambda: default_log_dir)
+
+    recorded_log_dirs: list[Path] = []
+    monkeypatch.setattr(orchestrator.git_ops, "ensure_branch", lambda branch: None)
+    monkeypatch.setattr(orchestrator.git_ops, "require_clean_worktree", lambda: None)
+    monkeypatch.setattr(
+        orchestrator.git_ops,
+        "commit_checkpoint_changes",
+        lambda msg, log_dir=None: recorded_log_dirs.append(log_dir),
+    )
+
+    def dev_writes_built(_prompt):
+        s = load_state(state_path)
+        s.set_field("phase0", "status", "built")
+        s.save()
+        return 0
+
+    def reviewer_approves(_prompt):
+        s = load_state(state_path)
+        s.set_field("phase0", "status", "approved")
+        s.save()
+        return 0
+
+    run_loop(
+        state_path=state_path,
+        developer=FakeProvider(name="dev", on_call=dev_writes_built),
+        reviewer=FakeProvider(name="rev", on_call=reviewer_approves),
+    )
+
+    assert recorded_log_dirs == [default_log_dir, default_log_dir]
+
