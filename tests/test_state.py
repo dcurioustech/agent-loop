@@ -8,9 +8,12 @@ import pytest
 
 from agent_loop.state import (
     CheckpointNotFound,
+    DuplicateCheckpointError,
     InvalidPlanState,
     PlanState,
+    ProtectedBranchError,
     load_state,
+    validate_payload,
 )
 
 
@@ -72,7 +75,7 @@ def test_load_rejects_missing_top_level_field(tmp_path):
 def test_load_rejects_protected_branch(tmp_path):
     for protected in ("main", "master"):
         p = _write(tmp_path, _minimal_plan(branch=protected))
-        with pytest.raises(InvalidPlanState, match="protected"):
+        with pytest.raises(ProtectedBranchError, match="protected"):
             load_state(p)
 
 
@@ -88,8 +91,17 @@ def test_load_rejects_duplicate_checkpoint_id(tmp_path):
     bad = _minimal_plan()
     bad["checkpoints"][1]["id"] = "phase0"
     p = _write(tmp_path, bad)
-    with pytest.raises(InvalidPlanState, match="duplicate"):
+    with pytest.raises(DuplicateCheckpointError, match="duplicate"):
         load_state(p)
+
+
+def test_validate_payload_is_reusable_on_in_memory_dict():
+    """`validate_payload` must work on a raw dict, not just via `load_state`."""
+    validate_payload(_minimal_plan())  # must not raise
+
+    bad = _minimal_plan(branch="main")
+    with pytest.raises(ProtectedBranchError):
+        validate_payload(bad)
 
 
 def test_load_rejects_checkpoint_missing_required_field(tmp_path):
@@ -266,3 +278,104 @@ def test_save_pretty_prints_with_trailing_newline(tmp_path):
     raw = p.read_text()
     assert raw.endswith("\n")
     assert "  " in raw  # indented
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint field types — the schema is the only thing standing between a
+# generated plan and the loop, so wrong-typed fields must not load.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field_name, bad_value",
+    [
+        ("id", ""),
+        ("id", 7),
+        ("id", None),
+        ("name", ""),
+        ("name", []),
+        ("scope", ""),
+        ("scope", 3.5),
+        ("review_notes", None),
+        ("review_notes", 12),
+        ("attempts", "0"),
+        ("attempts", 1.5),
+        ("attempts", None),
+    ],
+)
+def test_validate_payload_rejects_wrong_typed_checkpoint_fields(field_name, bad_value):
+    payload = _minimal_plan()
+    payload["checkpoints"][0][field_name] = bad_value
+    with pytest.raises(InvalidPlanState, match=field_name):
+        validate_payload(payload)
+
+
+def test_validate_payload_rejects_boolean_attempts():
+    # bool subclasses int, so a plain isinstance check would let True through.
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["attempts"] = True
+    with pytest.raises(InvalidPlanState, match="attempts"):
+        validate_payload(payload)
+
+
+def test_validate_payload_rejects_non_string_exit_criteria_entries():
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["exit_criteria"] = ["fine", 42]
+    with pytest.raises(InvalidPlanState, match=r"exit_criteria\[1\]"):
+        validate_payload(payload)
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t"])
+def test_validate_payload_rejects_blank_exit_criteria_entries(blank):
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["exit_criteria"] = ["fine", blank]
+    with pytest.raises(InvalidPlanState, match=r"exit_criteria\[1\]"):
+        validate_payload(payload)
+
+
+def test_validate_payload_rejects_empty_exit_criteria_list():
+    # Nothing objective to check means the review gate can only wave it through.
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["exit_criteria"] = []
+    with pytest.raises(InvalidPlanState, match="exit_criteria"):
+        validate_payload(payload)
+
+
+@pytest.mark.parametrize("negative", [-1, -500])
+def test_validate_payload_rejects_negative_attempts(negative):
+    """The loop counts up from 'attempts', so a negative one buys extra rounds.
+
+    `run` halts at `attempts >= max_review_attempts`; seeding attempts at -500
+    would grant ~503 developer/reviewer rounds before that guard ever fires.
+    """
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["attempts"] = negative
+    with pytest.raises(InvalidPlanState, match="attempts"):
+        validate_payload(payload)
+
+
+def test_load_state_rejects_negative_attempts_from_disk(tmp_path):
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["attempts"] = -500
+    p = _write(tmp_path, payload)
+    with pytest.raises(InvalidPlanState, match="attempts"):
+        load_state(p)
+
+
+def test_validate_payload_names_the_checkpoint_by_index_when_id_is_unusable():
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["id"] = 7
+    with pytest.raises(InvalidPlanState, match="checkpoint #0"):
+        validate_payload(payload)
+
+
+def test_load_state_rejects_wrong_typed_fields_from_disk(tmp_path):
+    payload = _minimal_plan()
+    payload["checkpoints"][0]["attempts"] = "many"
+    p = _write(tmp_path, payload)
+    with pytest.raises(InvalidPlanState, match="attempts"):
+        load_state(p)
+
+
+def test_validate_payload_still_accepts_a_well_formed_plan():
+    validate_payload(_minimal_plan())

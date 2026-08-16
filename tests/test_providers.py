@@ -5,6 +5,8 @@ fall back to a permission-prompted invocation in an unattended run.
 """
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from agent_loop.providers import (
@@ -13,6 +15,7 @@ from agent_loop.providers import (
     get_provider,
     known_provider_names,
 )
+from agent_loop.providers.base import CapturedResult
 
 
 # ---------------------------------------------------------------------------
@@ -215,3 +218,108 @@ def test_every_provider_declares_required_attrs():
         assert cls.name == name
         assert isinstance(cls.binary, str) and cls.binary
         assert cls.danger_env.startswith("ALLOW_DANGEROUS_")
+
+
+# ---------------------------------------------------------------------------
+# run_captured: the init-only, non-streaming execution path. `run` (used by
+# the developer/reviewer loop) must be completely untouched by any of this.
+# ---------------------------------------------------------------------------
+
+
+def test_run_captured_returns_stdout_stderr_and_returncode_on_success(monkeypatch):
+    captured_argv = {}
+
+    def fake_run(argv, timeout, capture_output, text):
+        captured_argv["argv"] = argv
+        assert capture_output is True
+        assert text is True
+        return subprocess.CompletedProcess(
+            argv, returncode=0, stdout='{"ok": true}', stderr=""
+        )
+
+    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
+    provider = get_provider("claude")
+    result = provider.run_captured("PROMPT", timeout=30)
+
+    assert result == CapturedResult(
+        returncode=0, stdout='{"ok": true}', stderr="", timed_out=False
+    )
+    assert captured_argv["argv"] == provider.build_argv("PROMPT")
+
+
+def test_run_captured_reports_non_zero_exit_without_raising(monkeypatch):
+    def fake_run(argv, timeout, capture_output, text):
+        return subprocess.CompletedProcess(
+            argv, returncode=1, stdout="", stderr="boom"
+        )
+
+    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
+    result = get_provider("claude").run_captured("PROMPT", timeout=30)
+
+    assert result.returncode == 1
+    assert result.stderr == "boom"
+    assert result.timed_out is False
+
+
+def test_run_captured_reports_timeout_with_partial_output(monkeypatch):
+    def fake_run(argv, timeout, capture_output, text):
+        raise subprocess.TimeoutExpired(
+            cmd=argv, timeout=timeout, output="partial-out", stderr="partial-err"
+        )
+
+    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
+    result = get_provider("claude").run_captured("PROMPT", timeout=5)
+
+    assert result.timed_out is True
+    assert result.returncode == 124
+    assert result.stdout == "partial-out"
+    assert result.stderr == "partial-err"
+
+
+def test_run_captured_timeout_with_no_partial_output_yields_empty_strings(monkeypatch):
+    def fake_run(argv, timeout, capture_output, text):
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
+
+    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
+    result = get_provider("claude").run_captured("PROMPT", timeout=5)
+
+    assert result.timed_out is True
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_run_captured_does_not_print_to_stdout(monkeypatch, capsys):
+    def fake_run(argv, timeout, capture_output, text):
+        return subprocess.CompletedProcess(argv, returncode=0, stdout="x", stderr="")
+
+    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
+    get_provider("claude").run_captured("PROMPT", timeout=30)
+
+    assert capsys.readouterr().out == ""
+
+
+def test_run_still_uses_streaming_subprocess_call_unchanged(monkeypatch):
+    """Guards against `run_captured` accidentally changing `run`'s behavior."""
+    calls = []
+
+    def fake_run(argv, timeout):
+        calls.append({"argv": argv, "timeout": timeout})
+        return subprocess.CompletedProcess(argv, returncode=0)
+
+    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
+    provider = get_provider("claude")
+    rc = provider.run("PROMPT", timeout=30)
+
+    assert rc == 0
+    assert calls == [{"argv": provider.build_argv("PROMPT"), "timeout": 30}]
+
+
+def test_run_still_times_out_the_same_way_unchanged(monkeypatch, capsys):
+    def fake_run(argv, timeout):
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
+
+    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
+    rc = get_provider("claude").run("PROMPT", timeout=5)
+
+    assert rc == 124
+    assert "timed out after 5s" in capsys.readouterr().out

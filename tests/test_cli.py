@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_loop import cli
+from agent_loop import cli, plan_init
+from agent_loop.providers.base import CapturedResult, Provider, ProviderError
 
 
 def _plan(tmp_path: Path, **overrides) -> Path:
@@ -202,6 +203,40 @@ def test_run_rejects_unknown_provider(tmp_path, capsys):
         cli.main(["run", "--state", str(p), "--developer", "bogus"])
 
 
+@pytest.mark.parametrize("flag", ["--timeout", "--max-review-attempts"])
+@pytest.mark.parametrize("bad_value", ["0", "-1"])
+def test_run_rejects_non_positive_counts(
+    tmp_path, monkeypatch, _stub_run_preconditions, flag, bad_value
+):
+    """`run` gets the same guard as `init`: 0 can only ever fail.
+
+    A zero timeout times out every agent call; a zero attempt budget halts
+    after a single review round.
+    """
+    p = _plan(tmp_path)
+    called = False
+
+    def fake_run_loop(**_):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(cli, "run_loop", fake_run_loop)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "--state", str(p), flag, bad_value])
+
+    # Rejected at parse time, so no provider is launched and no lock is taken.
+    assert not called
+
+
+def test_positive_int_rejection_message_names_the_flag_not_the_helper(capsys):
+    """argparse renders the type callable's __name__ straight at the user."""
+    with pytest.raises(SystemExit):
+        cli.main(["init", "Add a login page", "--timeout", "abc"])
+    err = capsys.readouterr().err
+    assert "invalid positive_int value" in err
+    assert "_positive_int" not in err
+
+
 def test_run_returns_nonzero_on_loop_halt(tmp_path, monkeypatch, _stub_run_preconditions):
     p = _plan(tmp_path)
 
@@ -220,3 +255,497 @@ def test_no_args_prints_help_and_exits_nonzero(capsys):
         cli.main([])
     # argparse-style: 2 on usage error
     assert exc.value.code != 0
+
+
+# ---------------------------------------------------------------------------
+# `init` — plan generation via a mocked provider
+# ---------------------------------------------------------------------------
+
+
+def _provider_checkpoint(cid: str = "phase0") -> dict:
+    return {"id": cid, "name": "Setup", "scope": "Bootstrap", "exit_criteria": ["A"]}
+
+
+def _plan_json(*ids: str) -> str:
+    ids = ids or ("phase0",)
+    return json.dumps({"checkpoints": [_provider_checkpoint(i) for i in ids]})
+
+
+class _FakeInitProvider(Provider):
+    name = "fake"
+    binary = "fake"
+    danger_env = "ALLOW_DANGEROUS_FAKE"
+
+    def __init__(
+        self,
+        model=None,
+        *,
+        stdout: str = "",
+        returncode: int = 0,
+        stderr: str = "",
+        timed_out: bool = False,
+    ) -> None:
+        super().__init__(model)
+        self.stdout = stdout
+        self.returncode = returncode
+        self.stderr = stderr
+        self.timed_out = timed_out
+        self.captured_calls: list[tuple[str, int]] = []
+
+    def build_argv(self, prompt: str) -> list[str]:  # pragma: no cover
+        return [self.binary, prompt]
+
+    def preflight(self) -> None:
+        return None
+
+    def run_captured(self, prompt: str, timeout: int) -> CapturedResult:
+        self.captured_calls.append((prompt, timeout))
+        return CapturedResult(
+            returncode=self.returncode,
+            stdout=self.stdout,
+            stderr=self.stderr,
+            timed_out=self.timed_out,
+        )
+
+
+@pytest.fixture
+def _stub_init_provider(monkeypatch):
+    """Route cli.get_provider to a fake, recording the name/model it was asked for."""
+    state = {"provider": _FakeInitProvider(stdout=_plan_json())}
+    calls: dict = {}
+
+    def fake_get_provider(name, model=None):
+        calls["name"] = name
+        calls["model"] = model
+        return state["provider"]
+
+    monkeypatch.setattr(cli, "get_provider", fake_get_provider)
+    return state, calls
+
+
+def test_init_accepts_plain_english_and_writes_default_plan_file(
+    tmp_path, _stub_init_provider
+):
+    state, calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc == 0
+    payload = json.loads(state_path.read_text())
+    assert payload["plan_file"] == plan_init.DEFAULT_PLAN_FILE
+    assert payload["branch"] == "feature/add-a-login-page"
+    assert payload["checkpoints"][0]["status"] == "pending"
+    assert payload["checkpoints"][0]["attempts"] == 0
+    assert payload["checkpoints"][0]["review_notes"] == ""
+    assert "Add a login page" in state["provider"].captured_calls[0][0]
+    # Defaults: provider=claude, timeout=1800, unless overridden.
+    assert calls["name"] == "claude"
+    assert calls["model"] is None
+    assert state["provider"].captured_calls[0][1] == 1800
+
+
+def test_init_accepts_fenced_json_output(tmp_path, monkeypatch):
+    fenced = "```json\n" + _plan_json() + "\n```"
+    provider = _FakeInitProvider(stdout=fenced)
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc == 0
+    payload = json.loads(state_path.read_text())
+    assert payload["checkpoints"][0]["id"] == "phase0"
+    assert payload["checkpoints"][0]["status"] == "pending"
+
+
+def test_init_accepts_feature_file_and_uses_it_as_default_plan_file(
+    tmp_path, _stub_init_provider
+):
+    _state, _calls = _stub_init_provider
+    feature_file = tmp_path / "user_auth.md"
+    feature_file.write_text("# User auth\nAdd login and signup flows.")
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        ["init", "--feature-file", str(feature_file), "--state", str(state_path)]
+    )
+
+    assert rc == 0
+    payload = json.loads(state_path.read_text())
+    assert payload["plan_file"] == str(feature_file)
+    assert payload["branch"] == "feature/user-auth"
+
+
+def test_init_rejects_both_feature_and_feature_file(tmp_path, capsys, _stub_init_provider):
+    feature_file = tmp_path / "f.md"
+    feature_file.write_text("content")
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        [
+            "init",
+            "Add a login page",
+            "--feature-file",
+            str(feature_file),
+            "--state",
+            str(state_path),
+        ]
+    )
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "not both" in capsys.readouterr().err
+
+
+def test_init_rejects_neither_feature_nor_feature_file(tmp_path, capsys, _stub_init_provider):
+    state_path = tmp_path / "plan_checkpoints.json"
+    rc = cli.main(["init", "--state", str(state_path)])
+    assert rc != 0
+    assert not state_path.exists()
+    assert "feature description" in capsys.readouterr().err
+
+
+def test_init_rejects_missing_feature_file(tmp_path, capsys, _stub_init_provider):
+    state_path = tmp_path / "plan_checkpoints.json"
+    rc = cli.main(
+        [
+            "init",
+            "--feature-file",
+            str(tmp_path / "missing.md"),
+            "--state",
+            str(state_path),
+        ]
+    )
+    assert rc != 0
+    assert not state_path.exists()
+    assert "not found" in capsys.readouterr().err
+
+
+def test_init_rejects_empty_feature_file(tmp_path, capsys, _stub_init_provider):
+    feature_file = tmp_path / "empty.md"
+    feature_file.write_text("   \n  ")
+    state_path = tmp_path / "plan_checkpoints.json"
+    rc = cli.main(
+        ["init", "--feature-file", str(feature_file), "--state", str(state_path)]
+    )
+    assert rc != 0
+    assert not state_path.exists()
+    assert "empty" in capsys.readouterr().err
+
+
+def test_init_flags_override_branch_plan_file_provider_model_timeout(
+    tmp_path, _stub_init_provider
+):
+    state, calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        [
+            "init",
+            "Add a login page",
+            "--state",
+            str(state_path),
+            "--branch",
+            "feature/custom-branch",
+            "--plan-file",
+            "docs/custom_plan.md",
+            "--provider",
+            "codex",
+            "--model",
+            "some-model",
+            "--timeout",
+            "42",
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(state_path.read_text())
+    assert payload["branch"] == "feature/custom-branch"
+    assert payload["plan_file"] == "docs/custom_plan.md"
+    assert calls["name"] == "codex"
+    assert calls["model"] == "some-model"
+    assert state["provider"].captured_calls[0][1] == 42
+
+
+def test_init_refuses_existing_state_without_force(tmp_path, capsys, _stub_init_provider):
+    state_path = tmp_path / "plan_checkpoints.json"
+    state_path.write_text("original content")
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc != 0
+    assert state_path.read_text() == "original content"
+    assert "--force" in capsys.readouterr().err
+
+
+def test_init_overwrites_existing_state_with_force(tmp_path, _stub_init_provider):
+    state_path = tmp_path / "plan_checkpoints.json"
+    state_path.write_text("original content")
+
+    rc = cli.main(
+        ["init", "Add a login page", "--state", str(state_path), "--force"]
+    )
+
+    assert rc == 0
+    payload = json.loads(state_path.read_text())
+    assert payload["branch"] == "feature/add-a-login-page"
+
+
+@pytest.mark.parametrize("branch", ["main", "master"])
+def test_init_rejects_protected_branch(tmp_path, capsys, _stub_init_provider, branch):
+    state, _calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        [
+            "init",
+            "Add a login page",
+            "--state",
+            str(state_path),
+            "--branch",
+            branch,
+        ]
+    )
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "protected" in capsys.readouterr().err
+    # Fails fast: never even calls out to the provider.
+    assert state["provider"].captured_calls == []
+
+
+def test_init_does_not_write_state_on_provider_failure(tmp_path, capsys, monkeypatch):
+    provider = _FakeInitProvider(returncode=1, stderr="boom")
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "boom" in capsys.readouterr().err
+
+
+def test_init_does_not_write_state_on_provider_timeout(tmp_path, capsys, monkeypatch):
+    provider = _FakeInitProvider(timed_out=True, returncode=124)
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "timed out" in capsys.readouterr().err
+
+
+def test_init_does_not_write_state_on_malformed_output(tmp_path, capsys, monkeypatch):
+    provider = _FakeInitProvider(stdout="not json at all")
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc != 0
+    assert not state_path.exists()
+
+
+def test_init_does_not_write_state_on_schema_validation_failure(tmp_path, capsys, monkeypatch):
+    # Two checkpoints sharing an id fails the same schema check load_state uses.
+    provider = _FakeInitProvider(stdout=_plan_json("phase0", "phase0"))
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "duplicate" in capsys.readouterr().err
+
+
+def test_init_does_not_overwrite_existing_file_on_failure_even_with_force(
+    tmp_path, monkeypatch
+):
+    provider = _FakeInitProvider(returncode=1, stderr="boom")
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+    state_path.write_text("original content")
+
+    rc = cli.main(
+        ["init", "Add a login page", "--state", str(state_path), "--force"]
+    )
+
+    assert rc != 0
+    assert state_path.read_text() == "original content"
+
+
+def test_init_rejects_missing_provider_binary(tmp_path, capsys, monkeypatch):
+    class _MissingBinaryProvider(_FakeInitProvider):
+        def preflight(self) -> None:
+            raise ProviderError("Missing CLI for provider 'fake': 'fake' not on PATH.")
+
+    provider = _MissingBinaryProvider()
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "not on PATH" in capsys.readouterr().err
+
+
+def test_init_rejects_unknown_provider_flag(tmp_path):
+    state_path = tmp_path / "plan_checkpoints.json"
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "init",
+                "Add a login page",
+                "--state",
+                str(state_path),
+                "--provider",
+                "bogus",
+            ]
+        )
+
+
+def test_init_generated_state_is_usable_by_validate_and_status(
+    tmp_path, capsys, _stub_init_provider
+):
+    state_path = tmp_path / "plan_checkpoints.json"
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc_validate = cli.main(["validate", "--state", str(state_path)])
+    assert rc_validate == 0
+    assert "OK" in capsys.readouterr().out
+
+    rc_status = cli.main(["status", "--state", str(state_path)])
+    assert rc_status == 0
+    out = capsys.readouterr().out
+    assert "phase0" in out and "pending" in out
+
+
+# ---------------------------------------------------------------------------
+# init input hygiene: a supplied-but-blank FEATURE is ambiguous, not absent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t "])
+def test_init_rejects_blank_feature_argument(tmp_path, capsys, _stub_init_provider, blank):
+    state, _calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", blank, "--state", str(state_path)])
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "empty" in capsys.readouterr().err
+    assert state["provider"].captured_calls == []
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_init_rejects_blank_feature_supplied_alongside_feature_file(
+    tmp_path, capsys, _stub_init_provider, blank
+):
+    """Two sources given is an error even when one of them is empty."""
+    state, _calls = _stub_init_provider
+    feature_file = tmp_path / "feature.md"
+    feature_file.write_text("# Real brief\n\nAdd a login page.\n")
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        [
+            "init",
+            blank,
+            "--feature-file",
+            str(feature_file),
+            "--state",
+            str(state_path),
+        ]
+    )
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "not both" in capsys.readouterr().err
+    assert state["provider"].captured_calls == []
+
+
+# ---------------------------------------------------------------------------
+# init --timeout must be positive: a non-positive one can only ever time out
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_timeout", ["0", "-1", "-1800"])
+def test_init_rejects_non_positive_timeout(tmp_path, _stub_init_provider, bad_timeout):
+    state, _calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "init",
+                "Add a login page",
+                "--state",
+                str(state_path),
+                "--timeout",
+                bad_timeout,
+            ]
+        )
+
+    assert not state_path.exists()
+    # Rejected at parse time, so the provider is never launched.
+    assert state["provider"].captured_calls == []
+
+
+def test_init_accepts_positive_timeout(tmp_path, _stub_init_provider):
+    state, _calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        ["init", "Add a login page", "--state", str(state_path), "--timeout", "1"]
+    )
+
+    assert rc == 0
+    assert state["provider"].captured_calls[0][1] == 1
+
+
+# ---------------------------------------------------------------------------
+# init default branch names have to be usable as real git branches
+# ---------------------------------------------------------------------------
+
+
+def test_init_default_branch_stays_short_for_a_long_feature_description(
+    tmp_path, _stub_init_provider
+):
+    state_path = tmp_path / "plan_checkpoints.json"
+    long_feature = (
+        "Add a retry mechanism with exponential backoff to the HTTP client so "
+        "that transient network failures are retried up to five times before "
+        "surfacing an error to the caller"
+    )
+
+    rc = cli.main(["init", long_feature, "--state", str(state_path)])
+
+    assert rc == 0
+    branch = json.loads(state_path.read_text())["branch"]
+    # "feature/" + a slug capped at slugify's 40-char default.
+    assert len(branch) <= len("feature/") + 40
+    assert branch.startswith("feature/add-a-retry-mechanism")
+
+
+def test_init_default_branch_comes_from_the_feature_file_name_not_its_contents(
+    tmp_path, _stub_init_provider
+):
+    state_path = tmp_path / "plan_checkpoints.json"
+    feature_file = tmp_path / "retry-backoff.md"
+    feature_file.write_text("# Retry\n\n" + "Lots of prose. " * 200)
+
+    rc = cli.main(
+        ["init", "--feature-file", str(feature_file), "--state", str(state_path)]
+    )
+
+    assert rc == 0
+    assert json.loads(state_path.read_text())["branch"] == "feature/retry-backoff"
