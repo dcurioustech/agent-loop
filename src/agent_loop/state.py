@@ -26,6 +26,14 @@ class InvalidPlanState(ValueError):
     """Raised when plan_checkpoints.json fails schema validation."""
 
 
+class ProtectedBranchError(InvalidPlanState):
+    """Raised when a payload targets a protected branch (e.g. main, master)."""
+
+
+class DuplicateCheckpointError(InvalidPlanState):
+    """Raised when a payload contains two checkpoints with the same id."""
+
+
 class CheckpointNotFound(KeyError):
     def __init__(self, cid: str):
         super().__init__(cid)
@@ -129,7 +137,7 @@ def load_state(path: Path | str) -> PlanState:
     except json.JSONDecodeError as e:
         raise InvalidPlanState(f"State file is not valid JSON: {e}") from e
 
-    _validate(raw)
+    validate_payload(raw)
     return PlanState(
         path=path,
         plan_file=raw["plan_file"],
@@ -141,7 +149,12 @@ def load_state(path: Path | str) -> PlanState:
     )
 
 
-def _validate(raw: Any) -> None:
+def validate_payload(raw: Any) -> None:
+    """Schema-check a plan payload (dict, not yet written to disk).
+
+    Reused by `load_state` and by plan generation (see `plan_init.py`) so an
+    in-memory generated payload can be validated before it is ever written.
+    """
     if not isinstance(raw, dict):
         raise InvalidPlanState("Top-level must be a JSON object")
 
@@ -153,7 +166,7 @@ def _validate(raw: Any) -> None:
     if not isinstance(branch, str) or not branch:
         raise InvalidPlanState("'branch' must be a non-empty string")
     if branch in PROTECTED_BRANCHES:
-        raise InvalidPlanState(f"Refusing protected target branch: {branch}")
+        raise ProtectedBranchError(f"Refusing protected target branch: {branch}")
 
     if not isinstance(raw["plan_file"], str) or not raw["plan_file"]:
         raise InvalidPlanState("'plan_file' must be a non-empty string")
@@ -181,7 +194,7 @@ def _validate(raw: Any) -> None:
                 f"checkpoint {cp['id']}: 'exit_criteria' must be a list"
             )
         if cp["id"] in seen_ids:
-            raise InvalidPlanState(f"duplicate checkpoint id: {cp['id']}")
+            raise DuplicateCheckpointError(f"duplicate checkpoint id: {cp['id']}")
         seen_ids.add(cp["id"])
 
     project = raw.get("project")

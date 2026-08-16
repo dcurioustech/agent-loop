@@ -8,9 +8,12 @@ import pytest
 
 from agent_loop.state import (
     CheckpointNotFound,
+    DuplicateCheckpointError,
     InvalidPlanState,
     PlanState,
+    ProtectedBranchError,
     load_state,
+    validate_payload,
 )
 
 
@@ -72,7 +75,7 @@ def test_load_rejects_missing_top_level_field(tmp_path):
 def test_load_rejects_protected_branch(tmp_path):
     for protected in ("main", "master"):
         p = _write(tmp_path, _minimal_plan(branch=protected))
-        with pytest.raises(InvalidPlanState, match="protected"):
+        with pytest.raises(ProtectedBranchError, match="protected"):
             load_state(p)
 
 
@@ -88,8 +91,17 @@ def test_load_rejects_duplicate_checkpoint_id(tmp_path):
     bad = _minimal_plan()
     bad["checkpoints"][1]["id"] = "phase0"
     p = _write(tmp_path, bad)
-    with pytest.raises(InvalidPlanState, match="duplicate"):
+    with pytest.raises(DuplicateCheckpointError, match="duplicate"):
         load_state(p)
+
+
+def test_validate_payload_is_reusable_on_in_memory_dict():
+    """`validate_payload` must work on a raw dict, not just via `load_state`."""
+    validate_payload(_minimal_plan())  # must not raise
+
+    bad = _minimal_plan(branch="main")
+    with pytest.raises(ProtectedBranchError):
+        validate_payload(bad)
 
 
 def test_load_rejects_checkpoint_missing_required_field(tmp_path):

@@ -8,7 +8,7 @@
     {
       "id": "phase0",
       "name": "Define reusable initialization foundations",
-      "status": "pending",
+      "status": "built",
       "scope": "Add the shared initialization module and expose reusable state-payload validation without changing the behavior of the existing run, validate, or status commands. Define structured errors and a canonical generated-state shape that satisfies the current plan schema.",
       "exit_criteria": [
         "The state validator can validate an in-memory generated payload before it is written",
@@ -17,7 +17,7 @@
         "Existing state load/save and loop tests continue to pass"
       ],
       "attempts": 0,
-      "review_notes": ""
+      "review_notes": "Files touched: src/agent_loop/state.py, src/agent_loop/plan_init.py (new), tests/test_state.py, tests/test_plan_init.py (new). state.py: renamed the private `_validate` to a public `validate_payload(raw)` so schema checks run on in-memory dicts, not just files loaded from disk; `load_state` now calls the public function (no behavior change). Added `ProtectedBranchError` and `DuplicateCheckpointError` as InvalidPlanState subclasses and raised them at the existing protected-branch and duplicate-id check sites, so callers that still catch `InvalidPlanState` are unaffected while new code can distinguish failure kinds. plan_init.py: new shared module providing `new_checkpoint(...)` (canonical checkpoint: status=pending, attempts=0, review_notes=\"\") and `build_generated_payload(...)` (canonical top-level shape: plan_file/branch/checkpoints plus optional project/models), and `validate_generated_payload(...)` which reuses state.validate_payload for pre-write validation. Tests added: 12 new (6 in test_plan_init.py covering canonical shape, optional blocks, valid-payload acceptance, protected-branch/duplicate-id/malformed-payload/non-dict rejection, no-disk-IO, and load_state round-trip compatibility; 3 in test_state.py covering the renamed public validate_payload and the two new exception subclasses, plus updated match assertions). Exit criteria: (1) validate_generated_payload/validate_payload validate a plain dict with no Path involved, verified by test_validate_generated_payload_does_not_touch_disk and test_validate_payload_is_reusable_on_in_memory_dict; (2) new_checkpoint/build_generated_payload always emit pending/0/\"\" fields, verified by test_new_checkpoint_has_canonical_pending_shape; (3) ProtectedBranchError, DuplicateCheckpointError, and generic InvalidPlanState (missing field, non-dict) are raised with clear messages, verified by the corresponding rejection tests; (4) full suite (92 tests, `python3 -m pytest`) passes, including all pre-existing state/orchestrator/cli/provider/example tests."
     },
     {
       "id": "phase1",
