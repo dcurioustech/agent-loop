@@ -8,14 +8,14 @@
     {
       "id": "phase0",
       "name": "Change default log directory from /tmp to ./logs in repo",
-      "status": "built",
+      "status": "approved",
       "scope": "Update safety.default_log_dir to default to ./logs in the repository directory (using repo_root() / 'logs' if inside a git repository, or relative Path('logs') as fallback, while maintaining LOG_DIR environment variable override). Ignore logs/ directory in .gitignore.",
       "exit_criteria": [
         "default_log_dir returns repo_root() / 'logs' when inside a git repository and LOG_DIR is unset",
         "default_log_dir respects LOG_DIR env var when set",
         "logs/ directory is ignored in .gitignore"
       ],
-      "attempts": 2,
+      "attempts": 3,
       "review_notes": "Touched src/agent_loop/safety.py, .gitignore, and this checkpoint file. No tests added (test coverage is reserved for phase2); manually verified the repository default and LOG_DIR override. default_log_dir now returns repo_root() / 'logs' when LOG_DIR is unset in a Git repo, returns Path(LOG_DIR) when set, and logs/ is ignored."
     },
     {
