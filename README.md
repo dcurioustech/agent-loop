@@ -33,6 +33,7 @@ agent-loop run --developer codex --reviewer claude
 agent-loop run --developer grok  --reviewer antigravity
 agent-loop run --developer antigravity --reviewer claude
 agent-loop run --developer-model claude-opus-4-8 --reviewer-model gpt-5-codex
+agent-loop run --log-dir custom/logs                  # override default ./logs directory
 ```
 
 ### Choosing the model
@@ -59,6 +60,28 @@ ALLOW_DANGEROUS_ANTIGRAVITY=1  # agy --dangerously-skip-permissions
 ```
 
 The loop refuses to start unless the assigned provider's danger gate is set, so unattended runs cannot stall on a permission prompt.
+
+## Logging and Audit Trail
+
+During `agent-loop run`, execution output and lifecycle events are automatically mirrored and recorded in a log file.
+
+### Default Log Directory and `--log-dir` Precedence
+
+- **Default Location**: By default, runtime logs are written to `./logs` at the repository root (`<git-repo-root>/logs/loop_YYYYMMDD_HHMMSS.log`), resolved relative to the Git repository root regardless of the caller's current working directory.
+- **`--log-dir` Precedence**: Passing `--log-dir <path>` on the command line explicitly overrides the default location and takes precedence over `./logs`.
+
+### Log Contents
+
+The repository-local log captures a complete, chronologically ordered audit trail across developer and reviewer iterations:
+- **Agent traces**: Full input prompts, console output, and exit status from every initial build, review, and revision invocation of the developer and reviewer agent CLIs (which may contain raw agent output).
+- **Commit statements and outcomes**: Every checkpoint commit attempt with its requested commit statement and resulting outcome (including the created commit SHA or an explicit no-change result).
+- **Review and approval comments**: Reviewer change requests logged as review comments and successful reviews logged as approval comments.
+
+### Tracked Audit Artifacts
+
+Runtime logs are committed by the loop as reviewable audit artifacts:
+- Logs within the repository are tracked and committed alongside checkpoint code changes at each stage (`built`, `approved`, `revision`, `halted`, and upon run completion or failure).
+- The loop verifies worktree cleanliness before execution while allowing active runtime logs, ensuring clean Git hygiene without losing durable run history.
 
 ## Generating a plan (`agent-loop init`)
 
