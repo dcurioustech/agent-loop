@@ -203,6 +203,40 @@ def test_run_rejects_unknown_provider(tmp_path, capsys):
         cli.main(["run", "--state", str(p), "--developer", "bogus"])
 
 
+@pytest.mark.parametrize("flag", ["--timeout", "--max-review-attempts"])
+@pytest.mark.parametrize("bad_value", ["0", "-1"])
+def test_run_rejects_non_positive_counts(
+    tmp_path, monkeypatch, _stub_run_preconditions, flag, bad_value
+):
+    """`run` gets the same guard as `init`: 0 can only ever fail.
+
+    A zero timeout times out every agent call; a zero attempt budget halts
+    after a single review round.
+    """
+    p = _plan(tmp_path)
+    called = False
+
+    def fake_run_loop(**_):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(cli, "run_loop", fake_run_loop)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "--state", str(p), flag, bad_value])
+
+    # Rejected at parse time, so no provider is launched and no lock is taken.
+    assert not called
+
+
+def test_positive_int_rejection_message_names_the_flag_not_the_helper(capsys):
+    """argparse renders the type callable's __name__ straight at the user."""
+    with pytest.raises(SystemExit):
+        cli.main(["init", "Add a login page", "--timeout", "abc"])
+    err = capsys.readouterr().err
+    assert "invalid positive_int value" in err
+    assert "_positive_int" not in err
+
+
 def test_run_returns_nonzero_on_loop_halt(tmp_path, monkeypatch, _stub_run_preconditions):
     p = _plan(tmp_path)
 
@@ -592,3 +626,126 @@ def test_init_generated_state_is_usable_by_validate_and_status(
     assert rc_status == 0
     out = capsys.readouterr().out
     assert "phase0" in out and "pending" in out
+
+
+# ---------------------------------------------------------------------------
+# init input hygiene: a supplied-but-blank FEATURE is ambiguous, not absent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t "])
+def test_init_rejects_blank_feature_argument(tmp_path, capsys, _stub_init_provider, blank):
+    state, _calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", blank, "--state", str(state_path)])
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "empty" in capsys.readouterr().err
+    assert state["provider"].captured_calls == []
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_init_rejects_blank_feature_supplied_alongside_feature_file(
+    tmp_path, capsys, _stub_init_provider, blank
+):
+    """Two sources given is an error even when one of them is empty."""
+    state, _calls = _stub_init_provider
+    feature_file = tmp_path / "feature.md"
+    feature_file.write_text("# Real brief\n\nAdd a login page.\n")
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        [
+            "init",
+            blank,
+            "--feature-file",
+            str(feature_file),
+            "--state",
+            str(state_path),
+        ]
+    )
+
+    assert rc != 0
+    assert not state_path.exists()
+    assert "not both" in capsys.readouterr().err
+    assert state["provider"].captured_calls == []
+
+
+# ---------------------------------------------------------------------------
+# init --timeout must be positive: a non-positive one can only ever time out
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_timeout", ["0", "-1", "-1800"])
+def test_init_rejects_non_positive_timeout(tmp_path, _stub_init_provider, bad_timeout):
+    state, _calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "init",
+                "Add a login page",
+                "--state",
+                str(state_path),
+                "--timeout",
+                bad_timeout,
+            ]
+        )
+
+    assert not state_path.exists()
+    # Rejected at parse time, so the provider is never launched.
+    assert state["provider"].captured_calls == []
+
+
+def test_init_accepts_positive_timeout(tmp_path, _stub_init_provider):
+    state, _calls = _stub_init_provider
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(
+        ["init", "Add a login page", "--state", str(state_path), "--timeout", "1"]
+    )
+
+    assert rc == 0
+    assert state["provider"].captured_calls[0][1] == 1
+
+
+# ---------------------------------------------------------------------------
+# init default branch names have to be usable as real git branches
+# ---------------------------------------------------------------------------
+
+
+def test_init_default_branch_stays_short_for_a_long_feature_description(
+    tmp_path, _stub_init_provider
+):
+    state_path = tmp_path / "plan_checkpoints.json"
+    long_feature = (
+        "Add a retry mechanism with exponential backoff to the HTTP client so "
+        "that transient network failures are retried up to five times before "
+        "surfacing an error to the caller"
+    )
+
+    rc = cli.main(["init", long_feature, "--state", str(state_path)])
+
+    assert rc == 0
+    branch = json.loads(state_path.read_text())["branch"]
+    # "feature/" + a slug capped at slugify's 40-char default.
+    assert len(branch) <= len("feature/") + 40
+    assert branch.startswith("feature/add-a-retry-mechanism")
+
+
+def test_init_default_branch_comes_from_the_feature_file_name_not_its_contents(
+    tmp_path, _stub_init_provider
+):
+    state_path = tmp_path / "plan_checkpoints.json"
+    feature_file = tmp_path / "retry-backoff.md"
+    feature_file.write_text("# Retry\n\n" + "Lots of prose. " * 200)
+
+    rc = cli.main(
+        ["init", "--feature-file", str(feature_file), "--state", str(state_path)]
+    )
+
+    assert rc == 0
+    assert json.loads(state_path.read_text())["branch"] == "feature/retry-backoff"

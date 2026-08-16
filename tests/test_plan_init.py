@@ -1,7 +1,10 @@
 """Tests for the shared plan-generation foundations (plan_init.py)."""
 from __future__ import annotations
 
+import errno
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +14,7 @@ from agent_loop.plan_init import (
     PlanOutputParseError,
     ProtectedBranchError,
     ProviderExecutionError,
+    StateFileExistsError,
     build_generated_payload,
     build_init_prompt,
     generate_plan_json,
@@ -401,6 +405,23 @@ def test_slugify_falls_back_to_feature_when_nothing_alphanumeric_survives():
     assert slugify("") == "feature"
 
 
+def test_slugify_transliterates_accented_characters_to_ascii_base():
+    # Without NFKD folding these collapse to "caf-r-servation", losing letters.
+    assert slugify("Café réservation") == "cafe-reservation"
+    assert slugify("naïve résumé façade") == "naive-resume-facade"
+
+
+def test_slugify_output_is_always_ascii():
+    for text in ["Café", "日本語サポート", "🎉 party", "Ünïcödé"]:
+        assert slugify(text).isascii()
+
+
+def test_slugify_normalizes_before_truncating():
+    # "é" folds to one character before the cut; folding after truncation
+    # would let the combining accent consume part of the budget.
+    assert slugify("éééééééééé", max_len=4) == "eeee"
+
+
 # ---------------------------------------------------------------------------
 # write_generated_payload — atomic write used only after validation succeeds
 # ---------------------------------------------------------------------------
@@ -414,12 +435,178 @@ def test_write_generated_payload_writes_formatted_json(tmp_path):
     assert path.read_text().endswith("\n")
 
 
-def test_write_generated_payload_overwrites_existing_file(tmp_path):
+def test_write_generated_payload_overwrites_existing_file_with_force(tmp_path):
     path = tmp_path / "plan_checkpoints.json"
     path.write_text("stale content")
     payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
-    write_generated_payload(path, payload)
+    write_generated_payload(path, payload, force=True)
     assert json.loads(path.read_text()) == payload
+
+
+def test_write_generated_payload_refuses_existing_file_without_force(tmp_path):
+    path = tmp_path / "plan_checkpoints.json"
+    path.write_text("stale content")
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+
+    with pytest.raises(StateFileExistsError):
+        write_generated_payload(path, payload)
+
+    # The pre-existing file is the one that must survive, byte for byte.
+    assert path.read_text() == "stale content"
+    assert [p.name for p in tmp_path.iterdir()] == ["plan_checkpoints.json"]
+
+
+def test_write_generated_payload_refuses_file_appearing_after_the_cli_check(tmp_path):
+    """The race the up-front `--state` existence check cannot close."""
+    path = tmp_path / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+    real_fsync = os.fsync
+
+    def racing_fsync(fd):
+        # Stand in for another process creating the target mid-write.
+        if not path.exists():
+            path.write_text("written by someone else")
+        return real_fsync(fd)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr("agent_loop.plan_init.os.fsync", racing_fsync)
+    try:
+        with pytest.raises(StateFileExistsError):
+            write_generated_payload(path, payload)
+    finally:
+        monkeypatch.undo()
+
+    assert path.read_text() == "written by someone else"
+    assert [p.name for p in tmp_path.iterdir()] == ["plan_checkpoints.json"]
+
+
+# ---------------------------------------------------------------------------
+# The no-hardlink fallback (exFAT, some network mounts) must be exactly as
+# exclusive as the os.link path — an exists()-then-replace would not be.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _no_hardlinks(monkeypatch):
+    """Simulate a filesystem whose link() fails with something other than EEXIST."""
+
+    def unsupported_link(src, dst):
+        raise OSError(errno.EPERM, "hardlinks not supported")
+
+    monkeypatch.setattr("agent_loop.plan_init.os.link", unsupported_link)
+
+
+def test_write_generated_payload_still_writes_without_hardlink_support(
+    tmp_path, _no_hardlinks
+):
+    path = tmp_path / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+
+    write_generated_payload(path, payload)
+
+    assert json.loads(path.read_text()) == payload
+    assert [p.name for p in tmp_path.iterdir()] == ["plan_checkpoints.json"]
+
+
+def test_write_generated_payload_refuses_existing_file_without_hardlink_support(
+    tmp_path, _no_hardlinks
+):
+    path = tmp_path / "plan_checkpoints.json"
+    path.write_text("stale content")
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+
+    with pytest.raises(StateFileExistsError):
+        write_generated_payload(path, payload)
+
+    assert path.read_text() == "stale content"
+    assert [p.name for p in tmp_path.iterdir()] == ["plan_checkpoints.json"]
+
+
+def test_no_hardlink_fallback_refuses_file_appearing_after_the_cli_check(
+    tmp_path, monkeypatch, _no_hardlinks
+):
+    path = tmp_path / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+    real_fsync = os.fsync
+
+    def racing_fsync(fd):
+        # Stand in for a concurrent init publishing the target mid-write.
+        if not path.exists():
+            path.write_text("written by someone else")
+        return real_fsync(fd)
+
+    monkeypatch.setattr("agent_loop.plan_init.os.fsync", racing_fsync)
+
+    with pytest.raises(StateFileExistsError):
+        write_generated_payload(path, payload)
+
+    assert path.read_text() == "written by someone else"
+    assert [p.name for p in tmp_path.iterdir()] == ["plan_checkpoints.json"]
+
+
+def test_no_hardlink_fallback_never_replaces_a_file_it_did_not_create(
+    tmp_path, monkeypatch, _no_hardlinks
+):
+    """Regression guard against an exists()-then-replace fallback.
+
+    The test above cannot catch that shape: it creates the rival before the
+    publish step, which a check-then-replace also refuses. The killing
+    interleaving is a rival appearing *between* the check and the replace, so
+    the rival is created from inside `Path.exists` — the probe only a
+    check-then-replace consults. The exclusive-creation fallback never calls
+    it, so no rival appears and the write just succeeds.
+
+    Either way the invariant holds: os.replace must only ever land on the
+    empty placeholder this process claimed, never on someone else's payload.
+    """
+    path = tmp_path / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+    real_exists = Path.exists
+    real_replace = os.replace
+    clobbered: list[str] = []
+
+    def racing_exists(self, *a, **kw):
+        if self == path and not real_exists(self, *a, **kw):
+            # Lost the race: the rival lands right after the check says "free".
+            self.write_text("written by someone else")
+            return False
+        return real_exists(self, *a, **kw)
+
+    def guarded_replace(src, dst):
+        # Anything non-empty at `dst` is a payload this process did not write.
+        existing = Path(dst)
+        if existing.exists() and existing.read_bytes():
+            clobbered.append(existing.read_text())
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(Path, "exists", racing_exists)
+    monkeypatch.setattr("agent_loop.plan_init.os.replace", guarded_replace)
+
+    try:
+        write_generated_payload(path, payload)
+    except StateFileExistsError:
+        pass
+
+    assert clobbered == [], f"publish overwrote a rival payload: {clobbered}"
+
+
+def test_no_hardlink_fallback_leaves_no_placeholder_when_publishing_fails(
+    tmp_path, monkeypatch, _no_hardlinks
+):
+    """A failed publish must not leave a zero-byte file blocking the next run."""
+    path = tmp_path / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+
+    def boom(src, dst):
+        raise OSError(errno.EIO, "disk fell over")
+
+    monkeypatch.setattr("agent_loop.plan_init.os.replace", boom)
+
+    with pytest.raises(OSError):
+        write_generated_payload(path, payload)
+
+    assert not path.exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_write_generated_payload_creates_parent_directories(tmp_path):

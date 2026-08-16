@@ -24,6 +24,18 @@ def _add_state_arg(p: argparse.ArgumentParser) -> None:
     )
 
 
+def positive_int(value: str) -> int:
+    """argparse type for counts and timeouts: a zero/negative one can never succeed.
+
+    Named without a leading underscore because argparse builds its rejection
+    message from `__name__` ("invalid positive_int value: 'abc'").
+    """
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-loop",
@@ -57,8 +69,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Model for the reviewer CLI. Overrides plan 'models.reviewer'; "
         "if neither is set, the CLI picks its own default.",
     )
-    run.add_argument("--max-review-attempts", type=int, default=3)
-    run.add_argument("--timeout", type=int, default=1800, help="Per-agent-call timeout in seconds.")
+    run.add_argument("--max-review-attempts", type=positive_int, default=3)
+    run.add_argument(
+        "--timeout",
+        type=positive_int,
+        default=1800,
+        help="Per-agent-call timeout in seconds.",
+    )
     run.add_argument("--log-dir", type=Path, default=None)
 
     validate = sub.add_parser("validate", help="Schema-check the state file.")
@@ -103,7 +120,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     init.add_argument("--model", default=None, help="Model for the planning CLI.")
     init.add_argument(
-        "--timeout", type=int, default=1800, help="Provider call timeout in seconds."
+        "--timeout",
+        type=positive_int,
+        default=1800,
+        help="Provider call timeout in seconds.",
     )
     init.add_argument(
         "--force", action="store_true", help="Overwrite an existing state file."
@@ -201,8 +221,10 @@ def _cmd_run(args) -> int:
 
 
 def _cmd_init(args) -> int:
-    feature_text = (args.feature or "").strip() if args.feature else ""
-    have_text = bool(feature_text)
+    # Which source was *supplied*, not which one turned out to be usable: an
+    # empty FEATURE alongside --feature-file is ambiguous input, not a
+    # single-source invocation.
+    have_text = args.feature is not None
     have_file = args.feature_file is not None
 
     if have_text and have_file:
@@ -216,6 +238,11 @@ def _cmd_init(args) -> int:
             "error: provide a feature description or --feature-file",
             file=sys.stderr,
         )
+        return 2
+
+    feature_text = (args.feature or "").strip()
+    if have_text and not feature_text:
+        print("error: feature description is empty", file=sys.stderr)
         return 2
 
     if have_file:
@@ -266,7 +293,19 @@ def _cmd_init(args) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
 
-    plan_init.write_generated_payload(args.state, payload)
+    try:
+        plan_init.write_generated_payload(args.state, payload, force=args.force)
+    except plan_init.StateFileExistsError:
+        # Only reachable if the file appeared after the check above.
+        print(
+            f"error: {args.state} already exists; use --force to overwrite",
+            file=sys.stderr,
+        )
+        return 2
+    except OSError as e:
+        print(f"error: unable to write {args.state}: {e}", file=sys.stderr)
+        return 2
+
     print(
         f"wrote {args.state} (branch={branch}, plan_file={plan_file}, "
         f"{len(checkpoints)} checkpoints)"

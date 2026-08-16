@@ -17,6 +17,7 @@ import json
 import os
 import re
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +36,7 @@ __all__ = [
     "PlanOutputParseError",
     "ProtectedBranchError",
     "ProviderExecutionError",
+    "StateFileExistsError",
     "build_generated_payload",
     "build_init_prompt",
     "generate_plan_json",
@@ -58,6 +60,10 @@ class ProviderExecutionError(RuntimeError):
 
 class PlanOutputParseError(ValueError):
     """Raised when provider output is not raw JSON or a single JSON code fence."""
+
+
+class StateFileExistsError(RuntimeError):
+    """Raised when the target state file exists and overwriting was not requested."""
 
 
 def new_checkpoint(cid: str, name: str, scope: str, exit_criteria: list[str]) -> dict:
@@ -113,21 +119,68 @@ _SLUG_COLLAPSE_RE = re.compile(r"[^a-z0-9]+")
 def slugify(text: str, max_len: int = 40) -> str:
     """Turn arbitrary text into a short, branch-name-safe slug.
 
-    Lowercases, collapses any run of non-alphanumeric characters into a
-    single hyphen, and trims to `max_len`. Falls back to "feature" if
-    nothing alphanumeric survives.
+    Transliterates accented characters to their ASCII base (so "café"
+    becomes "cafe" rather than "caf"), lowercases, collapses any run of
+    remaining non-alphanumeric characters into a single hyphen, and trims to
+    `max_len`. Falls back to "feature" if nothing alphanumeric survives.
     """
-    slug = _SLUG_COLLAPSE_RE.sub("-", text.strip().lower()).strip("-")
+    # NFKD splits "é" into "e" + combining accent; dropping non-ASCII then
+    # keeps the base letter. Must run before truncation so `max_len` counts
+    # the characters that actually reach the branch name.
+    decomposed = unicodedata.normalize("NFKD", text)
+    ascii_text = decomposed.encode("ascii", "ignore").decode("ascii")
+    slug = _SLUG_COLLAPSE_RE.sub("-", ascii_text.strip().lower()).strip("-")
     slug = slug[:max_len].strip("-")
     return slug or "feature"
 
 
-def write_generated_payload(path: Path, payload: dict) -> None:
+def _publish_exclusive(tmp_name: str, path: Path) -> None:
+    """Publish `tmp_name` as `path`, refusing to replace an existing file.
+
+    Both routes below create the final name and fail if it is already taken in
+    one atomic step, with no exists()-then-write gap — so a state file that
+    another process creates between the CLI's up-front existence check and
+    this write is never clobbered, on any filesystem.
+    """
+    try:
+        os.link(tmp_name, path)
+        return
+    except FileExistsError as e:
+        raise StateFileExistsError(f"{path} already exists") from e
+    except OSError:
+        pass  # no hardlink support on this filesystem; claim the name instead
+
+    # Filesystems without hardlink support (exFAT, some network mounts) still
+    # honour O_CREAT|O_EXCL, which claims the name atomically and does not
+    # follow symlinks. Claiming it up front means the os.replace below can only
+    # ever overwrite the empty placeholder this process owns — never a state
+    # file a concurrent init wrote. A plain exists()-then-replace would not:
+    # it reopens the very race the exclusive publish exists to close.
+    try:
+        os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except FileExistsError as e:
+        raise StateFileExistsError(f"{path} already exists") from e
+
+    try:
+        os.replace(tmp_name, path)
+    except OSError:
+        # Drop the placeholder so a failed publish does not leave a zero-byte
+        # state file behind, blocking the next run until --force.
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+
+
+def write_generated_payload(path: Path, payload: dict, *, force: bool = False) -> None:
     """Write `payload` as formatted JSON to `path` atomically.
 
-    Writes to a temp file in the same directory first, then renames it into
-    place, so a crash or interrupt never leaves `path` truncated or holding
-    partial JSON. Callers must validate `payload` before calling this.
+    Writes to a temp file in the same directory first, flushes it to disk,
+    then publishes it under `path`, so a crash or interrupt never leaves
+    `path` truncated or holding partial JSON. Without `force`, an existing
+    `path` is left untouched and `StateFileExistsError` is raised. Callers
+    must validate `payload` before calling this.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,13 +191,23 @@ def write_generated_payload(path: Path, payload: dict) -> None:
         with os.fdopen(fd, "w") as f:
             json.dump(payload, f, indent=2)
             f.write("\n")
-        os.replace(tmp_name, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+            f.flush()
+            # Durable on disk before it is reachable under `path`.
+            os.fsync(f.fileno())
+
+        if force:
+            os.replace(tmp_name, path)
+            tmp_name = None  # consumed by the rename
+        else:
+            _publish_exclusive(tmp_name, path)
+    finally:
+        # After a successful link the payload lives under both names; drop the
+        # temp one. Also cleans up after any failure above.
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------

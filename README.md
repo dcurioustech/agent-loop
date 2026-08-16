@@ -144,8 +144,8 @@ The example covers all three checkpoint statuses (`pending` / `built` / `approve
       "name": "...",
       "status": "pending",       // pending | built | approved
       "scope": "...",
-      "exit_criteria": ["..."],
-      "attempts": 0,
+      "exit_criteria": ["..."],   // non-empty; each entry a non-empty string
+      "attempts": 0,              // non-negative integer
       "review_notes": ""
     }
   ]
