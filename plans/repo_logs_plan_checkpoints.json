@@ -35,14 +35,14 @@
     {
       "id": "phase2",
       "name": "Update tests and verify functionality",
-      "status": "built",
+      "status": "approved",
       "scope": "Add and update unit tests for safety.default_log_dir, orchestrator logging, and git_ops commit statements. Ensure all pytest tests pass cleanly.",
       "exit_criteria": [
         "Unit tests verify default_log_dir behavior with and without LOG_DIR env var and inside git repo",
         "Unit tests verify agent traces, commit statements, review comments, and approval comments in orchestrator output",
         "The full test suite (python3 -m pytest) passes"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "review_notes": "Touched tests/test_safety.py, tests/test_git_ops.py, tests/test_orchestrator.py, and this checkpoint file. Added coverage for LOG_DIR override, repository-root logs default, and outside-repository fallback; structured developer/reviewer AGENT_TRACE events plus REVIEW_COMMENT, APPROVAL_COMMENT, and commit event output; and committed/no-change COMMIT_STATEMENT payloads including messages and hashes. Full suite passes: python3 -m pytest (217 passed)."
     }
   ]
