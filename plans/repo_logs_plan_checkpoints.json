@@ -15,7 +15,7 @@
         "default_log_dir respects LOG_DIR env var when set",
         "logs/ directory is ignored in .gitignore"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "review_notes": ""
     },
     {
