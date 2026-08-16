@@ -1,0 +1,66 @@
+{
+  "plan_file": "docs/agent_loop_init_plan.md",
+  "branch": "feature/agent-loop-init",
+  "project": {
+    "test_cmd": "pytest"
+  },
+  "checkpoints": [
+    {
+      "id": "phase0",
+      "name": "Define reusable initialization foundations",
+      "status": "pending",
+      "scope": "Add the shared initialization module and expose reusable state-payload validation without changing the behavior of the existing run, validate, or status commands. Define structured errors and a canonical generated-state shape that satisfies the current plan schema.",
+      "exit_criteria": [
+        "The state validator can validate an in-memory generated payload before it is written",
+        "The generated payload includes every required top-level and checkpoint field with pending status, zero attempts, and empty review notes",
+        "Protected branches, duplicate checkpoint IDs, and malformed generated payloads produce clear errors",
+        "Existing state load/save and loop tests continue to pass"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    },
+    {
+      "id": "phase1",
+      "name": "Add captured provider execution and plan generation",
+      "status": "pending",
+      "scope": "Extend the provider layer with a captured-output execution path used only for initialization. Build a strict prompt that converts supplied feature text into ordered, independently reviewable checkpoints and requires JSON-only output. Parse raw or Markdown-fenced JSON and normalize the required initial checkpoint fields.",
+      "exit_criteria": [
+        "The selected provider's stdout and stderr are captured with timeout and non-zero exit handling",
+        "The initializer prompt requests project-agnostic, ordered checkpoints with objective exit criteria and no prose outside the JSON result",
+        "Raw JSON and a single JSON code fence are accepted, while malformed or mixed output is rejected clearly",
+        "The existing streaming Provider.run behavior remains unchanged for the developer/reviewer loop"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    },
+    {
+      "id": "phase2",
+      "name": "Implement safe agent-loop init CLI workflow",
+      "status": "pending",
+      "scope": "Add the init subcommand. Accept either a plain-English positional feature description or a Markdown feature file, resolve branch and plan-file defaults, invoke the selected planning provider, validate the result, and write formatted JSON atomically only when it is valid. Protect existing files unless --force is present.",
+      "exit_criteria": [
+        "agent-loop init accepts plain-English input and --feature-file input with unambiguous validation of mutually exclusive arguments",
+        "CLI flags support state path, branch, plan-file, provider, model, timeout, and force behavior",
+        "A Markdown source path is used as the default plan_file and a plain-English feature receives the documented default plan path",
+        "Branch defaults are sanitized feature/<slug> values and protected branches are rejected",
+        "No state file is created or replaced when generation, parsing, or validation fails; existing files require --force"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    },
+    {
+      "id": "phase3",
+      "name": "Test and document initialization",
+      "status": "pending",
+      "scope": "Add deterministic unit and CLI tests using mocked provider execution, then document the new workflow and safety behavior in the README.",
+      "exit_criteria": [
+        "Tests cover text and Markdown inputs, flag defaults and overrides, valid raw/fenced JSON, malformed output, provider failure/timeout, schema rejection, and overwrite protection",
+        "A successfully generated file loads through load_state and works with agent-loop validate and status",
+        "The full pytest suite passes",
+        "README documents text and Markdown init examples, provider/model selection, and --force overwrite behavior"
+      ],
+      "attempts": 0,
+      "review_notes": ""
+    }
+  ]
+}
