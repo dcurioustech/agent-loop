@@ -19,7 +19,6 @@ Requires at least one of these CLIs on PATH, depending on the roles you pick:
 | claude   | <https://docs.claude.com/claude-code>  |
 | codex    | <https://github.com/openai/codex>      |
 | grok     | <https://docs.x.ai/docs/grok-cli>      |
-| gemini   | <https://github.com/google-gemini/gemini-cli> |
 | antigravity | <https://antigravity.google/docs/cli-overview> (binary: `agy`) |
 
 ## Usage
@@ -31,10 +30,9 @@ agent-loop validate                                  # schema-check + CLI prefli
 agent-loop status                                    # one-line summary per checkpoint
 agent-loop run                                       # developer=claude, reviewer=codex (defaults)
 agent-loop run --developer codex --reviewer claude
-agent-loop run --developer grok  --reviewer gemini
+agent-loop run --developer grok  --reviewer antigravity
 agent-loop run --developer antigravity --reviewer claude
 agent-loop run --developer-model claude-opus-4-8 --reviewer-model gpt-5-codex
-```
 
 ### Choosing the model
 
@@ -48,7 +46,7 @@ precedence (first match wins):
 So if you set nothing, each CLI keeps using its own default model — the loop never
 overrides it. Model names are provider-specific, so a value pinned for one role only
 makes sense for the CLI you assigned to that role. Under the hood the model is passed as
-`--model <name>` (claude/grok) or `-m <name>` (codex/gemini).
+`--model <name>` (claude/grok) or `-m <name>` (codex/antigravity).
 
 Safety envs (per provider, off by default):
 
@@ -56,7 +54,6 @@ Safety envs (per provider, off by default):
 ALLOW_DANGEROUS_CLAUDE=1   # claude --dangerously-skip-permissions
 ALLOW_DANGEROUS_CODEX=1    # codex exec --dangerously-bypass-approvals-and-sandbox
 ALLOW_DANGEROUS_GROK=1     # grok --always-approve
-ALLOW_DANGEROUS_GEMINI=1   # gemini --approval-mode yolo
 ALLOW_DANGEROUS_ANTIGRAVITY=1  # agy --dangerously-skip-permissions
 ```
 
