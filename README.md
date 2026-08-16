@@ -33,6 +33,7 @@ agent-loop run --developer codex --reviewer claude
 agent-loop run --developer grok  --reviewer antigravity
 agent-loop run --developer antigravity --reviewer claude
 agent-loop run --developer-model claude-opus-4-8 --reviewer-model gpt-5-codex
+```
 
 ### Choosing the model
 
@@ -58,6 +59,56 @@ ALLOW_DANGEROUS_ANTIGRAVITY=1  # agy --dangerously-skip-permissions
 ```
 
 The loop refuses to start unless the assigned provider's danger gate is set, so unattended runs cannot stall on a permission prompt.
+
+## Generating a plan (`agent-loop init`)
+
+`agent-loop init` turns a feature description into a schema-valid `plan_checkpoints.json`
+by asking a coding-agent CLI to break it into ordered, independently reviewable
+checkpoints. It runs the provider once, non-interactively, captures its output, and
+only writes the state file after the result parses as JSON and passes the same
+validation `load_state` applies — nothing is written on a provider error, a timeout,
+malformed output, or a schema failure.
+
+Plain-English input:
+
+```
+agent-loop init "Add a login page with email/password auth and a logout button"
+```
+
+Markdown input (e.g. an existing design doc):
+
+```
+agent-loop init --feature-file docs/feature.md
+```
+
+Either form accepts:
+
+| Flag           | Default                                                              |
+|----------------|-----------------------------------------------------------------------|
+| `--state`      | `plan_checkpoints.json`                                               |
+| `--branch`     | sanitized `feature/<slug>` derived from the feature text (or the `--feature-file` filename) |
+| `--plan-file`  | `docs/implementation_plan.md` for plain-English input, or the `--feature-file` path for Markdown input |
+| `--provider`   | `claude` — any provider from `agent-loop run`'s table can generate the plan |
+| `--model`      | the provider CLI's own default |
+| `--timeout`    | `1800` seconds |
+| `--force`      | off — refuses to overwrite an existing `--state` file |
+
+```
+agent-loop init "Add CSV export to the reports page" \
+  --provider codex --model gpt-5-codex --timeout 600 --branch feature/csv-export
+```
+
+By default `init` refuses to touch an existing state file so you don't accidentally
+clobber checkpoint progress; pass `--force` to regenerate and overwrite it. A target
+branch of `main`/`master` is rejected before the provider is ever invoked, same as
+`agent-loop run`. Generated checkpoints always start `pending` with `attempts: 0` and
+empty `review_notes`, regardless of what the provider returned for those fields.
+
+A freshly generated file is immediately usable:
+
+```
+agent-loop init "Add a login page" && agent-loop validate && agent-loop status
+```
 
 ## Bootstrapping a new consumer repo
 

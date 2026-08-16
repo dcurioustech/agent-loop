@@ -305,6 +305,24 @@ def test_init_accepts_plain_english_and_writes_default_plan_file(
     assert payload["checkpoints"][0]["attempts"] == 0
     assert payload["checkpoints"][0]["review_notes"] == ""
     assert "Add a login page" in state["provider"].captured_calls[0][0]
+    # Defaults: provider=claude, timeout=1800, unless overridden.
+    assert calls["name"] == "claude"
+    assert calls["model"] is None
+    assert state["provider"].captured_calls[0][1] == 1800
+
+
+def test_init_accepts_fenced_json_output(tmp_path, monkeypatch):
+    fenced = "```json\n" + _plan_json() + "\n```"
+    provider = _FakeInitProvider(stdout=fenced)
+    monkeypatch.setattr(cli, "get_provider", lambda name, model=None: provider)
+    state_path = tmp_path / "plan_checkpoints.json"
+
+    rc = cli.main(["init", "Add a login page", "--state", str(state_path)])
+
+    assert rc == 0
+    payload = json.loads(state_path.read_text())
+    assert payload["checkpoints"][0]["id"] == "phase0"
+    assert payload["checkpoints"][0]["status"] == "pending"
 
 
 def test_init_accepts_feature_file_and_uses_it_as_default_plan_file(
