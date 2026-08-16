@@ -1,6 +1,7 @@
 """Git operations the orchestrator relies on."""
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,20 @@ from .state import PROTECTED_BRANCHES
 
 class GitError(RuntimeError):
     pass
+
+
+def _log_commit_statement(*, message: str, status: str, commit_hash: str | None) -> None:
+    """Print a commit outcome that is mirrored into the active loop log."""
+    fields = {
+        "commit_hash": commit_hash,
+        "event": "COMMIT_STATEMENT",
+        "message": message,
+        "status": status,
+    }
+    print(
+        f"[agent-loop] COMMIT_STATEMENT {json.dumps(fields, sort_keys=True)}",
+        flush=True,
+    )
 
 
 def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -73,7 +88,9 @@ def commit_checkpoint_changes(message: str, log_dir: Path) -> None:
 
     cached = _run(["git", "diff", "--cached", "--quiet"], check=False)
     if cached.returncode == 0:
-        print(f"[agent-loop] no commit needed: {message}", flush=True)
+        _log_commit_statement(message=message, status="no_changes", commit_hash=None)
         return
 
     _run(["git", "commit", "-m", message, "--quiet"])
+    commit_hash = _run(["git", "rev-parse", "HEAD"]).stdout.strip()
+    _log_commit_statement(message=message, status="committed", commit_hash=commit_hash)

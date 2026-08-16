@@ -21,7 +21,7 @@
     {
       "id": "phase1",
       "name": "Enhance log output with agent traces, commit statements, review comments, and approval comments",
-      "status": "pending",
+      "status": "built",
       "scope": "Update orchestrator and git_ops to explicitly print structured log entries for agent traces (start/finish/prompts), commit statements (messages and commit hashes), review comments, and approval comments so they are captured by safety.tee_stdout_to in the log file.",
       "exit_criteria": [
         "Logs include explicit agent trace statements for developer and reviewer runs",
@@ -30,7 +30,7 @@
         "Logs include explicit approval comments when checkpoints are approved"
       ],
       "attempts": 0,
-      "review_notes": ""
+      "review_notes": "Touched src/agent_loop/orchestrator.py, src/agent_loop/git_ops.py, and this checkpoint file. Tests added: none (reserved for phase2); existing focused orchestrator/CLI tests pass (57 passed). AGENT_TRACE JSON lines record developer and reviewer start, prompt, and finish events; COMMIT_STATEMENT JSON lines record no-change or committed status, message, and commit hash; REVIEW_COMMENT logs the completed review status and notes; APPROVAL_COMMENT logs approval status and notes for reviewer approvals and already-approved checkpoints."
     },
     {
       "id": "phase2",
