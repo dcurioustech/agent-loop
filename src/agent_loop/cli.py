@@ -6,11 +6,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from . import safety
+from . import plan_init, safety
 from .orchestrator import LoopHalted, run_loop
 from .providers import get_provider, known_provider_names
 from .providers.base import ProviderError
-from .state import InvalidPlanState, load_state
+from .state import PROTECTED_BRANCHES, InvalidPlanState, load_state
 
 DEFAULT_STATE = Path("plan_checkpoints.json")
 
@@ -66,6 +66,48 @@ def _build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="One-line summary of each checkpoint.")
     _add_state_arg(status)
+
+    init = sub.add_parser(
+        "init",
+        help="Generate plan_checkpoints.json from a feature description or Markdown file.",
+    )
+    init.add_argument(
+        "feature",
+        nargs="?",
+        default=None,
+        help="Plain-English feature description (mutually exclusive with --feature-file).",
+    )
+    init.add_argument(
+        "--feature-file",
+        type=Path,
+        default=None,
+        help="Path to a Markdown file describing the feature.",
+    )
+    _add_state_arg(init)
+    init.add_argument(
+        "--branch",
+        default=None,
+        help="Target branch (default: sanitized feature/<slug>).",
+    )
+    init.add_argument(
+        "--plan-file",
+        default=None,
+        help="'plan_file' recorded in the state (default: the --feature-file path, or "
+        f"{plan_init.DEFAULT_PLAN_FILE} for plain-English input).",
+    )
+    init.add_argument(
+        "--provider",
+        choices=known_provider_names(),
+        default="claude",
+        help="CLI used to generate the plan (default: claude).",
+    )
+    init.add_argument("--model", default=None, help="Model for the planning CLI.")
+    init.add_argument(
+        "--timeout", type=int, default=1800, help="Provider call timeout in seconds."
+    )
+    init.add_argument(
+        "--force", action="store_true", help="Overwrite an existing state file."
+    )
 
     return parser
 
@@ -158,6 +200,80 @@ def _cmd_run(args) -> int:
     return 0
 
 
+def _cmd_init(args) -> int:
+    feature_text = (args.feature or "").strip() if args.feature else ""
+    have_text = bool(feature_text)
+    have_file = args.feature_file is not None
+
+    if have_text and have_file:
+        print(
+            "error: provide a feature description or --feature-file, not both",
+            file=sys.stderr,
+        )
+        return 2
+    if not have_text and not have_file:
+        print(
+            "error: provide a feature description or --feature-file",
+            file=sys.stderr,
+        )
+        return 2
+
+    if have_file:
+        if not args.feature_file.is_file():
+            print(f"error: feature file not found: {args.feature_file}", file=sys.stderr)
+            return 2
+        feature_text = args.feature_file.read_text().strip()
+        if not feature_text:
+            print(f"error: feature file is empty: {args.feature_file}", file=sys.stderr)
+            return 2
+        slug_source = args.feature_file.stem
+        default_plan_file = str(args.feature_file)
+    else:
+        slug_source = feature_text
+        default_plan_file = plan_init.DEFAULT_PLAN_FILE
+
+    branch = args.branch or f"feature/{plan_init.slugify(slug_source)}"
+    plan_file = args.plan_file or default_plan_file
+
+    if branch in PROTECTED_BRANCHES:
+        print(f"error: refusing protected target branch: {branch}", file=sys.stderr)
+        return 2
+
+    if args.state.exists() and not args.force:
+        print(
+            f"error: {args.state} already exists; use --force to overwrite",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        provider = get_provider(args.provider, args.model)
+        provider.preflight()
+    except ProviderError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    try:
+        data = plan_init.generate_plan_json(provider, feature_text, args.timeout)
+        checkpoints = plan_init.normalize_checkpoints(data)
+        payload = plan_init.build_generated_payload(plan_file, branch, checkpoints)
+        plan_init.validate_generated_payload(payload)
+    except (
+        plan_init.ProviderExecutionError,
+        plan_init.PlanOutputParseError,
+        InvalidPlanState,
+    ) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    plan_init.write_generated_payload(args.state, payload)
+    print(
+        f"wrote {args.state} (branch={branch}, plan_file={plan_file}, "
+        f"{len(checkpoints)} checkpoints)"
+    )
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -167,6 +283,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return _cmd_validate(args)
     if args.cmd == "status":
         return _cmd_status(args)
+    if args.cmd == "init":
+        return _cmd_init(args)
     parser.print_help(sys.stderr)
     raise SystemExit(2)
 

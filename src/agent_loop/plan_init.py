@@ -14,7 +14,10 @@ above. The developer/reviewer loop is untouched by any of this.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
+from pathlib import Path
 from typing import Any, Optional
 
 from .providers.base import Provider
@@ -26,6 +29,7 @@ from .state import (
 )
 
 __all__ = [
+    "DEFAULT_PLAN_FILE",
     "DuplicateCheckpointError",
     "InvalidPlanState",
     "PlanOutputParseError",
@@ -38,8 +42,14 @@ __all__ = [
     "normalize_checkpoints",
     "parse_plan_json",
     "run_provider_captured",
+    "slugify",
     "validate_generated_payload",
+    "write_generated_payload",
 ]
+
+#: `plan_file` recorded for a plain-English feature description, matching the
+#: convention documented in the README's schema example.
+DEFAULT_PLAN_FILE = "docs/implementation_plan.md"
 
 
 class ProviderExecutionError(RuntimeError):
@@ -95,6 +105,46 @@ def validate_generated_payload(payload: dict) -> None:
     success.
     """
     validate_payload(payload)
+
+
+_SLUG_COLLAPSE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def slugify(text: str, max_len: int = 40) -> str:
+    """Turn arbitrary text into a short, branch-name-safe slug.
+
+    Lowercases, collapses any run of non-alphanumeric characters into a
+    single hyphen, and trims to `max_len`. Falls back to "feature" if
+    nothing alphanumeric survives.
+    """
+    slug = _SLUG_COLLAPSE_RE.sub("-", text.strip().lower()).strip("-")
+    slug = slug[:max_len].strip("-")
+    return slug or "feature"
+
+
+def write_generated_payload(path: Path, payload: dict) -> None:
+    """Write `payload` as formatted JSON to `path` atomically.
+
+    Writes to a temp file in the same directory first, then renames it into
+    place, so a crash or interrupt never leaves `path` truncated or holding
+    partial JSON. Callers must validate `payload` before calling this.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload, f, indent=2)
+            f.write("\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------

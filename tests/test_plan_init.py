@@ -1,6 +1,8 @@
 """Tests for the shared plan-generation foundations (plan_init.py)."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from agent_loop.plan_init import (
@@ -16,7 +18,9 @@ from agent_loop.plan_init import (
     normalize_checkpoints,
     parse_plan_json,
     run_provider_captured,
+    slugify,
     validate_generated_payload,
+    write_generated_payload,
 )
 from agent_loop.providers.base import CapturedResult, Provider
 from agent_loop.state import load_state
@@ -362,3 +366,89 @@ def test_generate_plan_json_propagates_parse_error():
     )
     with pytest.raises(PlanOutputParseError):
         generate_plan_json(provider, "Add a login page", timeout=30)
+
+
+# ---------------------------------------------------------------------------
+# slugify — used by the CLI to derive the default feature/<slug> branch
+# ---------------------------------------------------------------------------
+
+
+def test_slugify_lowercases_and_hyphenates_spaces():
+    assert slugify("Add a login page") == "add-a-login-page"
+
+
+def test_slugify_collapses_punctuation_runs():
+    assert slugify("Fix bug #42: null pointer!!") == "fix-bug-42-null-pointer"
+
+
+def test_slugify_strips_leading_and_trailing_hyphens():
+    assert slugify("  ---weird input---  ") == "weird-input"
+
+
+def test_slugify_truncates_to_max_len():
+    slug = slugify("a" * 100, max_len=10)
+    assert slug == "a" * 10
+
+
+def test_slugify_truncation_does_not_leave_trailing_hyphen():
+    # Truncating "abcde-fghij-klmno" to 6 chars lands exactly on a hyphen.
+    slug = slugify("abcde fghij klmno", max_len=6)
+    assert slug == "abcde"
+
+
+def test_slugify_falls_back_to_feature_when_nothing_alphanumeric_survives():
+    assert slugify("!!!") == "feature"
+    assert slugify("") == "feature"
+
+
+# ---------------------------------------------------------------------------
+# write_generated_payload — atomic write used only after validation succeeds
+# ---------------------------------------------------------------------------
+
+
+def test_write_generated_payload_writes_formatted_json(tmp_path):
+    path = tmp_path / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+    write_generated_payload(path, payload)
+    assert json.loads(path.read_text()) == payload
+    assert path.read_text().endswith("\n")
+
+
+def test_write_generated_payload_overwrites_existing_file(tmp_path):
+    path = tmp_path / "plan_checkpoints.json"
+    path.write_text("stale content")
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+    write_generated_payload(path, payload)
+    assert json.loads(path.read_text()) == payload
+
+
+def test_write_generated_payload_creates_parent_directories(tmp_path):
+    path = tmp_path / "nested" / "dir" / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+    write_generated_payload(path, payload)
+    assert json.loads(path.read_text()) == payload
+
+
+def test_write_generated_payload_leaves_no_tmp_files_behind(tmp_path):
+    path = tmp_path / "plan_checkpoints.json"
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+    write_generated_payload(path, payload)
+    assert [p.name for p in tmp_path.iterdir()] == ["plan_checkpoints.json"]
+
+
+def test_write_generated_payload_does_not_corrupt_existing_file_on_failure(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "plan_checkpoints.json"
+    path.write_text("original content")
+    payload = build_generated_payload("docs/plan.md", "feature/x", _checkpoints())
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr("agent_loop.plan_init.json.dump", boom)
+    with pytest.raises(RuntimeError):
+        write_generated_payload(path, payload)
+
+    assert path.read_text() == "original content"
+    assert [p.name for p in tmp_path.iterdir()] == ["plan_checkpoints.json"]
