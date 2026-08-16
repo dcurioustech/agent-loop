@@ -23,7 +23,7 @@
     {
       "id": "phase1",
       "name": "Capture a complete agent-loop audit trail",
-      "status": "built",
+      "status": "approved",
       "scope": "Extend each run's repository-local log so it records developer and reviewer agent traces plus structured lifecycle entries for checkpoint commits, requested review changes, and approvals. Ensure records are ordered, attributable to their role and checkpoint, and useful even when a run halts or a commit is unnecessary.",
       "exit_criteria": [
         "Developer and reviewer traces from every initial, review, and revision invocation are written to the run log with role and checkpoint context",
@@ -33,7 +33,7 @@
         "The commit workflow records commit outcomes without losing them between checkpoint commits and leaves no completed audit entries uncommitted at the end of a successful run",
         "Tests cover successful approval, requested revisions, no-op commits, and halted or failed execution without invoking real agent CLIs"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "review_notes": "Phase 1 complete.\n\nFiles touched:\n- src/agent_loop/git_ops.py: Added CommitResult dataclass; enhanced commit_checkpoint_changes() to log commit attempt statements, outcomes with commit SHAs or explicit no-change results; updated require_clean_worktree(log_dir=None) to permit active log files.\n- src/agent_loop/orchestrator.py: Enhanced run_loop() with structured lifecycle logging (role and checkpoint context for developer/reviewer initial, review, and revision invocations); logged reviewer change requests as review comments and approvals as approval comments; flushed events; added durable history commits on halt (f\"{cid}: halted\"), failure (\"audit: run failed\"), and completion (\"audit: completed run\").\n- tests/test_git_ops.py: Added unit tests for commit attempt and commit ID outcome logging, explicit no-change logging, sequential commit outcome preservation, and real git repo end-to-end runs for approved and halted execution.\n- tests/test_orchestrator.py: Updated lifecycle tests for audit completion commits; added unit tests for traces with role and checkpoint context, reviewer change requests, revision trails, halted execution, and failure states.\n\nExit criteria met:\n1. Developer and reviewer traces from initial, review, and revision invocations are logged with role ([developer], [reviewer]) and checkpoint context ([{cid}]).\n2. Every checkpoint commit attempt logs its requested commit statement and outcome (commit SHA or explicit no-change result) via CommitResult.\n3. Reviewer change requests and approvals are logged as review comments and approval comments without relying only on mutable plan state.\n4. Chronological ordering is preserved, events are flushed immediately, and durable run history is committed on success, halt, or failure.\n5. Commit outcomes are preserved across sequential checkpoint commits and finalized at run end leaving no uncommitted audit entries.\n6. Pytest suite tests approval, revisions, no-op commits, halted runs, and failure handling without invoking real agent CLIs."
     },
     {
