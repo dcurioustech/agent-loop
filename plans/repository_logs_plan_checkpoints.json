@@ -39,7 +39,7 @@
     {
       "id": "phase2",
       "name": "Document and verify repository-local logging",
-      "status": "built",
+      "status": "approved",
       "scope": "Document the default logs directory, override behavior, log contents, and Git hygiene, then run the complete automated test suite to verify the logging changes do not regress the checkpoint loop.",
       "exit_criteria": [
         "README documentation identifies ./logs at the repository root as the default and explains --log-dir precedence",
@@ -47,7 +47,7 @@
         "README documentation explains that runtime logs are committed by the loop as reviewable audit artifacts and may contain agent output",
         "The full python3 -m pytest suite passes"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "review_notes": "Phase 2 complete.\n\nFiles touched:\n- README.md: Added --log-dir CLI usage example and added a comprehensive 'Logging and Audit Trail' section documenting repository-local logging, default ./logs path, --log-dir precedence, log contents, and Git audit artifact tracking.\n\nExit criteria met:\n1. README identifies ./logs at the repository root as default and explains --log-dir precedence.\n2. README states that logs include agent traces (prompts, raw agent output, and exit status), commit statements and outcomes (commit SHAs or no-change results), review comments, and approval comments.\n3. README explains that runtime logs are committed by the loop as reviewable audit artifacts and may contain agent output.\n4. The full python3 -m pytest suite passes (233/233 passed)."
     }
   ]
