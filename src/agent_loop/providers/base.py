@@ -4,11 +4,27 @@ import os
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Optional
 
 
 class ProviderError(RuntimeError):
     pass
+
+
+@dataclass
+class CapturedResult:
+    """Result of a non-streaming, output-capturing provider invocation.
+
+    Produced only by `Provider.run_captured`, which is used by `agent-loop
+    init` to read a provider's full response. The developer/reviewer loop
+    keeps using `Provider.run`, which streams straight to the terminal.
+    """
+
+    returncode: int
+    stdout: str
+    stderr: str
+    timed_out: bool = False
 
 
 class Provider(ABC):
@@ -50,3 +66,28 @@ class Provider(ABC):
                 flush=True,
             )
             return 124
+
+    def run_captured(self, prompt: str, timeout: int) -> CapturedResult:
+        """Run the provider non-interactively, capturing stdout/stderr.
+
+        Unlike `run`, nothing is streamed to the terminal — this is for
+        callers (namely `agent-loop init`) that need to parse the provider's
+        full response rather than watch it work.
+        """
+        argv = self.build_argv(prompt)
+        try:
+            result = subprocess.run(
+                argv, timeout=timeout, capture_output=True, text=True
+            )
+            return CapturedResult(
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+        except subprocess.TimeoutExpired as e:
+            return CapturedResult(
+                returncode=124,
+                stdout=e.stdout or "",
+                stderr=e.stderr or "",
+                timed_out=True,
+            )

@@ -6,11 +6,19 @@ import pytest
 from agent_loop.plan_init import (
     DuplicateCheckpointError,
     InvalidPlanState,
+    PlanOutputParseError,
     ProtectedBranchError,
+    ProviderExecutionError,
     build_generated_payload,
+    build_init_prompt,
+    generate_plan_json,
     new_checkpoint,
+    normalize_checkpoints,
+    parse_plan_json,
+    run_provider_captured,
     validate_generated_payload,
 )
+from agent_loop.providers.base import CapturedResult, Provider
 from agent_loop.state import load_state
 
 
@@ -123,3 +131,234 @@ def test_validated_payload_round_trips_through_load_state(tmp_path):
     assert state.get("phase0")["status"] == "pending"
     assert state.get("phase0")["attempts"] == 0
     assert state.get("phase0")["review_notes"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Captured provider execution
+# ---------------------------------------------------------------------------
+
+
+class FakeProvider(Provider):
+    name = "fake"
+    binary = "fake"
+    danger_env = "ALLOW_DANGEROUS_FAKE"
+
+    def __init__(self, result: CapturedResult) -> None:
+        super().__init__()
+        self._result = result
+        self.prompts: list[str] = []
+        self.timeouts: list[int] = []
+
+    def build_argv(self, prompt: str) -> list[str]:  # pragma: no cover
+        return [self.binary, prompt]
+
+    def run_captured(self, prompt: str, timeout: int) -> CapturedResult:
+        self.prompts.append(prompt)
+        self.timeouts.append(timeout)
+        return self._result
+
+
+def test_run_provider_captured_returns_stdout_on_success():
+    provider = FakeProvider(CapturedResult(returncode=0, stdout="OUT", stderr=""))
+    assert run_provider_captured(provider, "PROMPT", timeout=30) == "OUT"
+    assert provider.prompts == ["PROMPT"]
+    assert provider.timeouts == [30]
+
+
+def test_run_provider_captured_raises_on_timeout():
+    provider = FakeProvider(
+        CapturedResult(returncode=124, stdout="", stderr="", timed_out=True)
+    )
+    with pytest.raises(ProviderExecutionError, match="timed out after 30s"):
+        run_provider_captured(provider, "PROMPT", timeout=30)
+
+
+def test_run_provider_captured_raises_on_non_zero_exit():
+    provider = FakeProvider(CapturedResult(returncode=1, stdout="", stderr="boom"))
+    with pytest.raises(ProviderExecutionError, match="exited with code 1.*boom"):
+        run_provider_captured(provider, "PROMPT", timeout=30)
+
+
+def test_run_provider_captured_non_zero_message_without_stderr():
+    provider = FakeProvider(CapturedResult(returncode=2, stdout="", stderr="   "))
+    with pytest.raises(ProviderExecutionError, match="exited with code 2"):
+        run_provider_captured(provider, "PROMPT", timeout=30)
+
+
+# ---------------------------------------------------------------------------
+# Prompt construction
+# ---------------------------------------------------------------------------
+
+
+def test_build_init_prompt_embeds_feature_text():
+    prompt = build_init_prompt("Add a login page")
+    assert "Add a login page" in prompt
+
+
+def test_build_init_prompt_requests_json_only_no_prose():
+    prompt = build_init_prompt("Add a login page")
+    assert "ONLY a single JSON object" in prompt
+    assert "no prose" in prompt
+
+
+def test_build_init_prompt_requests_project_agnostic_ordered_checkpoints():
+    prompt = build_init_prompt("Add a login page")
+    assert "project-agnostic" in prompt
+    assert "ordered" in prompt
+    assert "exit_criteria" in prompt
+    assert "objective" in prompt
+
+
+# ---------------------------------------------------------------------------
+# JSON parsing: raw JSON or a single fenced block, nothing else
+# ---------------------------------------------------------------------------
+
+
+def test_parse_plan_json_accepts_raw_json():
+    assert parse_plan_json('{"checkpoints": []}') == {"checkpoints": []}
+
+
+def test_parse_plan_json_accepts_single_json_fence():
+    raw = '```json\n{"checkpoints": []}\n```'
+    assert parse_plan_json(raw) == {"checkpoints": []}
+
+
+def test_parse_plan_json_accepts_fence_without_json_tag():
+    raw = '```\n{"checkpoints": []}\n```'
+    assert parse_plan_json(raw) == {"checkpoints": []}
+
+
+def test_parse_plan_json_strips_surrounding_whitespace():
+    raw = '\n\n  {"checkpoints": []}  \n\n'
+    assert parse_plan_json(raw) == {"checkpoints": []}
+
+
+def test_parse_plan_json_rejects_empty_output():
+    with pytest.raises(PlanOutputParseError, match="no output"):
+        parse_plan_json("   ")
+
+
+def test_parse_plan_json_rejects_prose_before_json():
+    raw = 'Here is the plan:\n{"checkpoints": []}'
+    with pytest.raises(PlanOutputParseError, match="not valid JSON"):
+        parse_plan_json(raw)
+
+
+def test_parse_plan_json_rejects_prose_after_json():
+    raw = '{"checkpoints": []}\nHope this helps!'
+    with pytest.raises(PlanOutputParseError, match="not valid JSON"):
+        parse_plan_json(raw)
+
+
+def test_parse_plan_json_rejects_prose_around_a_fence():
+    raw = 'Here is the plan:\n```json\n{"checkpoints": []}\n```'
+    with pytest.raises(PlanOutputParseError, match="mixes prose"):
+        parse_plan_json(raw)
+
+
+def test_parse_plan_json_rejects_prose_after_a_fence():
+    raw = '```json\n{"checkpoints": []}\n```\nHope this helps!'
+    with pytest.raises(PlanOutputParseError, match="mixes prose"):
+        parse_plan_json(raw)
+
+
+def test_parse_plan_json_rejects_more_than_one_fence():
+    raw = '```json\n{"a": 1}\n```\n```json\n{"b": 2}\n```'
+    with pytest.raises(PlanOutputParseError, match="mixes prose|more than one"):
+        parse_plan_json(raw)
+
+
+def test_parse_plan_json_rejects_invalid_json():
+    with pytest.raises(PlanOutputParseError, match="not valid JSON"):
+        parse_plan_json("{not json}")
+
+
+def test_parse_plan_json_rejects_invalid_json_inside_fence():
+    raw = "```json\n{not json}\n```"
+    with pytest.raises(PlanOutputParseError, match="not valid JSON"):
+        parse_plan_json(raw)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint normalization
+# ---------------------------------------------------------------------------
+
+
+def _minimal_cp(cid: str = "phase0") -> dict:
+    return {"id": cid, "name": "Setup", "scope": "Bootstrap", "exit_criteria": ["A"]}
+
+
+def test_normalize_checkpoints_accepts_checkpoints_key():
+    result = normalize_checkpoints({"checkpoints": [_minimal_cp()]})
+    assert result == [new_checkpoint("phase0", "Setup", "Bootstrap", ["A"])]
+
+
+def test_normalize_checkpoints_accepts_bare_list():
+    result = normalize_checkpoints([_minimal_cp()])
+    assert result == [new_checkpoint("phase0", "Setup", "Bootstrap", ["A"])]
+
+
+def test_normalize_checkpoints_forces_canonical_pending_shape():
+    cp = _minimal_cp()
+    cp.update({"status": "approved", "attempts": 5, "review_notes": "stale"})
+    result = normalize_checkpoints({"checkpoints": [cp]})
+    assert result[0]["status"] == "pending"
+    assert result[0]["attempts"] == 0
+    assert result[0]["review_notes"] == ""
+
+
+def test_normalize_checkpoints_rejects_missing_checkpoints_list():
+    with pytest.raises(PlanOutputParseError, match="checkpoints"):
+        normalize_checkpoints({"not_checkpoints": []})
+
+
+def test_normalize_checkpoints_rejects_empty_list():
+    with pytest.raises(PlanOutputParseError, match="non-empty"):
+        normalize_checkpoints({"checkpoints": []})
+
+
+def test_normalize_checkpoints_rejects_non_dict_entry():
+    with pytest.raises(PlanOutputParseError, match="JSON object"):
+        normalize_checkpoints({"checkpoints": ["not-a-dict"]})
+
+
+def test_normalize_checkpoints_rejects_missing_required_field():
+    cp = _minimal_cp()
+    del cp["scope"]
+    with pytest.raises(PlanOutputParseError, match="scope"):
+        normalize_checkpoints({"checkpoints": [cp]})
+
+
+def test_normalize_checkpoints_rejects_non_list_exit_criteria():
+    cp = _minimal_cp()
+    cp["exit_criteria"] = "just do it well"
+    with pytest.raises(PlanOutputParseError, match="exit_criteria"):
+        normalize_checkpoints({"checkpoints": [cp]})
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: provider execution -> parsed JSON
+# ---------------------------------------------------------------------------
+
+
+def test_generate_plan_json_runs_prompt_and_parses_result():
+    provider = FakeProvider(
+        CapturedResult(returncode=0, stdout='{"checkpoints": []}', stderr="")
+    )
+    result = generate_plan_json(provider, "Add a login page", timeout=30)
+    assert result == {"checkpoints": []}
+    assert "Add a login page" in provider.prompts[0]
+
+
+def test_generate_plan_json_propagates_execution_error():
+    provider = FakeProvider(CapturedResult(returncode=1, stdout="", stderr="boom"))
+    with pytest.raises(ProviderExecutionError):
+        generate_plan_json(provider, "Add a login page", timeout=30)
+
+
+def test_generate_plan_json_propagates_parse_error():
+    provider = FakeProvider(
+        CapturedResult(returncode=0, stdout="not json at all", stderr="")
+    )
+    with pytest.raises(PlanOutputParseError):
+        generate_plan_json(provider, "Add a login page", timeout=30)
