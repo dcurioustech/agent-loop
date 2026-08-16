@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from .state import PROTECTED_BRANCHES
@@ -9,6 +10,13 @@ from .state import PROTECTED_BRANCHES
 
 class GitError(RuntimeError):
     pass
+
+
+@dataclass
+class CommitResult:
+    committed: bool
+    commit_id: str | None
+    message: str
 
 
 def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -39,21 +47,53 @@ def ensure_branch(branch: str) -> None:
         _run(["git", "checkout", "-b", branch])
 
 
-def require_clean_worktree() -> None:
+def require_clean_worktree(log_dir: Path | None = None) -> None:
     res = _run(["git", "status", "--porcelain", "--untracked-files=all"])
-    if res.stdout.strip():
+    lines = [ln for ln in res.stdout.strip().splitlines() if ln]
+    if not lines:
+        return
+
+    if log_dir is not None:
+        try:
+            root = repo_root()
+            rel_log_dir = log_dir.resolve().relative_to(root.resolve())
+            prefix = f"{rel_log_dir}/"
+            lines = [
+                ln
+                for ln in lines
+                if not (ln.startswith("?? ") and ln[3:].startswith(prefix))
+            ]
+        except (ValueError, GitError):
+            pass
+
+    if lines:
         raise GitError(
             "Worktree must be clean before running the loop.\n"
-            f"Outstanding changes:\n{res.stdout}"
+            f"Outstanding changes:\n" + "\n".join(lines)
         )
 
 
-def commit_checkpoint_changes(message: str, log_dir: Path | None = None) -> None:
+
+def commit_checkpoint_changes(
+    message: str, log_dir: Path | None = None
+) -> CommitResult:
+    print(f"[agent-loop] [commit] attempt: {message}", flush=True)
     _run(["git", "add", "-A"])
 
     cached = _run(["git", "diff", "--cached", "--quiet"], check=False)
     if cached.returncode == 0:
         print(f"[agent-loop] no commit needed: {message}", flush=True)
-        return
+        print(
+            f"[agent-loop] [commit] outcome: no changes to commit ({message})",
+            flush=True,
+        )
+        return CommitResult(committed=False, commit_id=None, message=message)
 
     _run(["git", "commit", "-m", message, "--quiet"])
+    commit_id = _run(["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
+    print(
+        f"[agent-loop] [commit] outcome: commit {commit_id} ({message})",
+        flush=True,
+    )
+    return CommitResult(committed=True, commit_id=commit_id, message=message)
+
