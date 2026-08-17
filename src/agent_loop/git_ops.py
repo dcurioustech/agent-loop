@@ -54,37 +54,59 @@ def ensure_branch(branch: str) -> None:
         _run(["git", "checkout", "-b", branch])
 
 
-def require_clean_worktree() -> None:
+def _relative_log_prefix(log_dir: Path | None) -> str | None:
+    """Return the repo-relative ``logs/`` prefix, or None if not inside the repo."""
+    if log_dir is None:
+        return None
+    try:
+        rel = log_dir.resolve().relative_to(repo_root().resolve())
+    except (ValueError, GitError):
+        return None
+    return f"{rel}/" if str(rel) != "." else ""
+
+
+def require_clean_worktree(log_dir: Path | None = None) -> None:
+    """Refuse to start on a dirty worktree, tolerating the loop's own log files.
+
+    Logs are committed as audit artifacts, so a log file from a previous run is
+    both *tracked* and *modified* by the time the next run starts: the tee keeps
+    appending after the final commit of the run that created it. Untracked logs
+    (a brand new run) and modified logs (that trailing tail) are therefore both
+    expected, and neither should block the loop.
+    """
     res = _run(["git", "status", "--porcelain", "--untracked-files=all"])
-    if res.stdout.strip():
+    lines = [ln for ln in res.stdout.splitlines() if ln.strip()]
+
+    prefix = _relative_log_prefix(log_dir)
+    if prefix is not None:
+        # Porcelain v1 status codes are two columns followed by a space, so the
+        # path starts at index 3. Paths containing spaces or other special
+        # characters come back double-quoted.
+        lines = [ln for ln in lines if not ln[3:].lstrip('"').startswith(prefix)]
+
+    if lines:
         raise GitError(
             "Worktree must be clean before running the loop.\n"
-            f"Outstanding changes:\n{res.stdout}"
+            "Outstanding changes:\n" + "\n".join(lines)
         )
+
+
+#: Log directories already warned about, so a multi-checkpoint run says it once.
+_WARNED_EXTERNAL_LOG_DIRS: set[str] = set()
 
 
 def commit_checkpoint_changes(message: str, log_dir: Path) -> None:
-    root = repo_root()
-    log_dir = log_dir.resolve()
-    try:
-        log_dir.relative_to(root)
-        inside = True
-    except ValueError:
-        inside = False
+    if _relative_log_prefix(log_dir) is None:
+        key = str(log_dir)
+        if key not in _WARNED_EXTERNAL_LOG_DIRS:
+            _WARNED_EXTERNAL_LOG_DIRS.add(key)
+            print(
+                f"[agent-loop] WARNING: log directory {log_dir} is outside the "
+                "repository; run logs will not be committed as audit artifacts.",
+                flush=True,
+            )
 
-    if inside:
-        _run(
-            [
-                "git",
-                "add",
-                "-A",
-                "--",
-                ".",
-                f":(exclude){log_dir.relative_to(root)}",
-            ]
-        )
-    else:
-        _run(["git", "add", "-A"])
+    _run(["git", "add", "-A"])
 
     cached = _run(["git", "diff", "--cached", "--quiet"], check=False)
     if cached.returncode == 0:

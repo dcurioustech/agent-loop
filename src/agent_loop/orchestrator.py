@@ -23,6 +23,24 @@ def _log_event(event: str, **fields: Any) -> None:
     )
 
 
+def _commit_audit_tail(message: str, log_dir: Path) -> None:
+    """Commit the run's closing state, flushing the log tail into git.
+
+    Called on every exit path, including failures, so it must never replace the
+    exception that is already propagating: a commit that cannot be made is
+    reported and swallowed.
+    """
+    try:
+        git_ops.commit_checkpoint_changes(message, log_dir=log_dir)
+    except Exception as exc:  # noqa: BLE001 - audit commit is best-effort
+        _log_event(
+            "AUDIT_COMMIT_FAILED",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            message=message,
+        )
+
+
 def _run_agent(
     *,
     provider: Provider,
@@ -160,102 +178,120 @@ def run_loop(
     log_dir: Optional[Path] = None,
 ) -> None:
     state = load_state(state_path)
-    git_ops.ensure_branch(state.branch)
-    git_ops.require_clean_worktree()
-
     log_dir = log_dir or safety.default_log_dir()
+    git_ops.ensure_branch(state.branch)
+    git_ops.require_clean_worktree(log_dir=log_dir)
 
-    for cid in state.ids():
-        cp = state.get(cid)
-        if cp["status"] == "approved":
-            print(f">> {cid} already approved — skip", flush=True)
-            _log_event(
-                "APPROVAL_COMMENT",
-                approval_status="approved",
-                checkpoint=cid,
-                comment=cp["review_notes"],
-                source="existing_checkpoint",
-            )
-            continue
-
-        print(
-            f"\n============================================================"
-            f"\n  CHECKPOINT {cid} — {cp['name']}"
-            f"\n============================================================",
-            flush=True,
-        )
-
-        if cp["status"] != "built":
-            _run_agent(
-                provider=developer,
-                role="developer",
-                checkpoint=cid,
-                prompt=developer_prompt(state, cid),
-                timeout=timeout,
-                run_kind="build",
-            )
-            git_ops.commit_checkpoint_changes(f"{cid}: built", log_dir=log_dir)
-            state = load_state(state_path)  # reload after agent mutation
-        else:
-            print(f">> {cid} already built — resuming at review gate", flush=True)
-
-        while True:
+    try:
+        for cid in state.ids():
             cp = state.get(cid)
-            attempts = cp["attempts"] + 1
-            state.set_field(cid, "attempts", attempts)
-            state.save()
-            print(f"--- {cid} review attempt {attempts}/{max_review_attempts} ---", flush=True)
-
-            _run_agent(
-                provider=reviewer,
-                role="reviewer",
-                checkpoint=cid,
-                prompt=reviewer_prompt(state, cid),
-                timeout=timeout,
-                run_kind="review",
-            )
-            state = load_state(state_path)
-            reviewed_checkpoint = state.get(cid)
-            status = reviewed_checkpoint["status"]
-            notes = reviewed_checkpoint["review_notes"]
-            _log_event(
-                "REVIEW_COMMENT",
-                checkpoint=cid,
-                comment=notes,
-                review_attempt=attempts,
-                status=status,
-            )
-
-            if status == "approved":
-                print(f">> {cid} APPROVED", flush=True)
+            if cp["status"] == "approved":
+                print(f">> {cid} already approved — skip", flush=True)
                 _log_event(
                     "APPROVAL_COMMENT",
                     approval_status="approved",
                     checkpoint=cid,
+                    comment=cp["review_notes"],
+                    source="existing_checkpoint",
+                )
+                continue
+
+            print(
+                f"\n============================================================"
+                f"\n  CHECKPOINT {cid} — {cp['name']}"
+                f"\n============================================================",
+                flush=True,
+            )
+
+            if cp["status"] != "built":
+                _run_agent(
+                    provider=developer,
+                    role="developer",
+                    checkpoint=cid,
+                    prompt=developer_prompt(state, cid),
+                    timeout=timeout,
+                    run_kind="build",
+                )
+                git_ops.commit_checkpoint_changes(f"{cid}: built", log_dir=log_dir)
+                state = load_state(state_path)  # reload after agent mutation
+            else:
+                print(f">> {cid} already built — resuming at review gate", flush=True)
+
+            while True:
+                cp = state.get(cid)
+                attempts = cp["attempts"] + 1
+                state.set_field(cid, "attempts", attempts)
+                state.save()
+                print(
+                    f"--- {cid} review attempt {attempts}/{max_review_attempts} ---",
+                    flush=True,
+                )
+
+                _run_agent(
+                    provider=reviewer,
+                    role="reviewer",
+                    checkpoint=cid,
+                    prompt=reviewer_prompt(state, cid),
+                    timeout=timeout,
+                    run_kind="review",
+                )
+                state = load_state(state_path)
+                reviewed_checkpoint = state.get(cid)
+                status = reviewed_checkpoint["status"]
+                notes = reviewed_checkpoint["review_notes"]
+                _log_event(
+                    "REVIEW_COMMENT",
+                    checkpoint=cid,
                     comment=notes,
                     review_attempt=attempts,
-                    source="reviewer",
-                )
-                git_ops.commit_checkpoint_changes(f"{cid}: approved", log_dir=log_dir)
-                break
-
-            if attempts >= max_review_attempts:
-                raise LoopHalted(
-                    f"{cid} not approved after {attempts} attempts — halting for human review."
+                    status=status,
                 )
 
-            _run_agent(
-                provider=developer,
-                role="developer",
-                checkpoint=cid,
-                prompt=revision_prompt(state, cid, notes),
-                timeout=timeout,
-                run_kind="revision",
-            )
-            git_ops.commit_checkpoint_changes(
-                f"{cid}: revision {attempts}", log_dir=log_dir
-            )
-            state = load_state(state_path)
+                if status == "approved":
+                    print(f">> {cid} APPROVED", flush=True)
+                    _log_event(
+                        "APPROVAL_COMMENT",
+                        approval_status="approved",
+                        checkpoint=cid,
+                        comment=notes,
+                        review_attempt=attempts,
+                        source="reviewer",
+                    )
+                    git_ops.commit_checkpoint_changes(
+                        f"{cid}: approved", log_dir=log_dir
+                    )
+                    break
+
+                if attempts >= max_review_attempts:
+                    raise LoopHalted(
+                        f"{cid} not approved after {attempts} attempts — halting for human review."
+                    )
+
+                _run_agent(
+                    provider=developer,
+                    role="developer",
+                    checkpoint=cid,
+                    prompt=revision_prompt(state, cid, notes),
+                    timeout=timeout,
+                    run_kind="revision",
+                )
+                git_ops.commit_checkpoint_changes(
+                    f"{cid}: revision {attempts}", log_dir=log_dir
+                )
+                state = load_state(state_path)
+    except LoopHalted as exc:
+        _log_event("RUN_OUTCOME", outcome="halted", reason=str(exc))
+        _commit_audit_tail("audit: halted", log_dir)
+        raise
+    except BaseException as exc:
+        _log_event(
+            "RUN_OUTCOME",
+            outcome="failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        _commit_audit_tail("audit: run failed", log_dir)
+        raise
 
     print(f"\n### All checkpoints approved on branch {state.branch}.", flush=True)
     print(
@@ -263,3 +299,5 @@ def run_loop(
         "only after explicit human approval.",
         flush=True,
     )
+    _log_event("RUN_OUTCOME", outcome="completed", branch=state.branch)
+    _commit_audit_tail("audit: completed run", log_dir)
