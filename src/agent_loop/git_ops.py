@@ -1,6 +1,7 @@
 """Git operations the orchestrator relies on."""
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,20 @@ from .state import PROTECTED_BRANCHES
 
 class GitError(RuntimeError):
     pass
+
+
+def _log_commit_statement(*, message: str, status: str, commit_hash: str | None) -> None:
+    """Print a commit outcome that is mirrored into the active loop log."""
+    fields = {
+        "commit_hash": commit_hash,
+        "event": "COMMIT_STATEMENT",
+        "message": message,
+        "status": status,
+    }
+    print(
+        f"[agent-loop] COMMIT_STATEMENT {json.dumps(fields, sort_keys=True)}",
+        flush=True,
+    )
 
 
 def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -39,41 +54,74 @@ def ensure_branch(branch: str) -> None:
         _run(["git", "checkout", "-b", branch])
 
 
-def require_clean_worktree() -> None:
+def _relative_log_prefix(log_dir: Path | None) -> str | None:
+    """Return the repo-relative ``logs/`` prefix, or None if not inside the repo.
+
+    Raises GitError if log_dir is the repository root itself, as that would
+    bypass all security checks by matching every file in the working tree.
+    """
+    if log_dir is None:
+        return None
+    try:
+        rel = log_dir.resolve().relative_to(repo_root().resolve())
+    except (ValueError, GitError):
+        return None
+    if str(rel) == ".":
+        raise GitError(
+            "Log directory cannot be the repository root itself. "
+            "Use a subdirectory like 'logs/' instead."
+        )
+    return f"{rel}/"
+
+
+def require_clean_worktree(log_dir: Path | None = None) -> None:
+    """Refuse to start on a dirty worktree, tolerating the loop's own log files.
+
+    Logs are committed as audit artifacts, so a log file from a previous run is
+    both *tracked* and *modified* by the time the next run starts: the tee keeps
+    appending after the final commit of the run that created it. Untracked logs
+    (a brand new run) and modified logs (that trailing tail) are therefore both
+    expected, and neither should block the loop.
+    """
     res = _run(["git", "status", "--porcelain", "--untracked-files=all"])
-    if res.stdout.strip():
+    lines = [ln for ln in res.stdout.splitlines() if ln.strip()]
+
+    prefix = _relative_log_prefix(log_dir)
+    if prefix is not None:
+        # Porcelain v1 status codes are two columns followed by a space, so the
+        # path starts at index 3. Paths containing spaces or other special
+        # characters come back double-quoted.
+        lines = [ln for ln in lines if not ln[3:].lstrip('"').startswith(prefix)]
+
+    if lines:
         raise GitError(
             "Worktree must be clean before running the loop.\n"
-            f"Outstanding changes:\n{res.stdout}"
+            "Outstanding changes:\n" + "\n".join(lines)
         )
+
+
+#: Log directories already warned about, so a multi-checkpoint run says it once.
+_WARNED_EXTERNAL_LOG_DIRS: set[str] = set()
 
 
 def commit_checkpoint_changes(message: str, log_dir: Path) -> None:
-    root = repo_root()
-    log_dir = log_dir.resolve()
-    try:
-        log_dir.relative_to(root)
-        inside = True
-    except ValueError:
-        inside = False
+    if _relative_log_prefix(log_dir) is None:
+        key = str(log_dir)
+        if key not in _WARNED_EXTERNAL_LOG_DIRS:
+            _WARNED_EXTERNAL_LOG_DIRS.add(key)
+            print(
+                f"[agent-loop] WARNING: log directory {log_dir} is outside the "
+                "repository; run logs will not be committed as audit artifacts.",
+                flush=True,
+            )
 
-    if inside:
-        _run(
-            [
-                "git",
-                "add",
-                "-A",
-                "--",
-                ".",
-                f":(exclude){log_dir.relative_to(root)}",
-            ]
-        )
-    else:
-        _run(["git", "add", "-A"])
+    _run(["git", "add", "-A"])
 
     cached = _run(["git", "diff", "--cached", "--quiet"], check=False)
     if cached.returncode == 0:
-        print(f"[agent-loop] no commit needed: {message}", flush=True)
+        _log_commit_statement(message=message, status="no_changes", commit_hash=None)
         return
 
     _run(["git", "commit", "-m", message, "--quiet"])
+    commit_hash = _run(["git", "rev-parse", "HEAD"]).stdout.strip()
+    _log_commit_statement(message=message, status="committed", commit_hash=commit_hash)

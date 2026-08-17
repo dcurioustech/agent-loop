@@ -31,14 +31,16 @@ will likely be sent back for that before anything else.
 
 ```
 src/agent_loop/
-├── cli.py            # argparse entry point: validate / status / run subcommands
+├── cli.py            # argparse entry point: init / validate / status / run
 ├── orchestrator.py   # the developer/reviewer loop itself
-├── state.py           # PlanState: load/validate/mutate/save plan_checkpoints.json
-├── safety.py           # lockfile, log-dir tee, danger-env gate enforcement
-├── git_ops.py           # git subprocess wrappers (branch, clean-worktree, commit)
+├── plan_init.py       # `init`: generate plan_checkpoints.json from a description
+├── state.py            # PlanState: load/validate/mutate/save plan_checkpoints.json
+├── audit.py             # --audit-level: what agent output reaches the committed log
+├── safety.py             # lockfile, log-dir tee, danger-env gate enforcement
+├── git_ops.py             # git subprocess wrappers (branch, clean-worktree, commit)
 └── providers/
-    ├── base.py           # abstract Provider: build_argv() / preflight() / run()
-    └── <name>.py          # one file per coding-agent CLI wrapped
+    ├── base.py             # abstract Provider: build_argv() / preflight() / run()
+    └── <name>.py            # one file per coding-agent CLI wrapped
 ```
 
 ## Adding a new provider
@@ -62,9 +64,11 @@ the pattern (e.g. `claude.py` or `codex.py`). To add one:
 - Run `pytest` locally before opening the PR.
 - Explain *why*, not just *what*, in the PR description if the change isn't obvious from
   the diff.
-- Safety-related behavior (the branch guard, dirty-worktree guard, danger-gate opt-in, and
-  max-review-attempts halt) is core to the project's design — changes that weaken any of
-  these by default need a clear justification in the PR description.
+- Safety-related behavior (the branch guard, dirty-worktree guard, danger-gate opt-in,
+  max-review-attempts halt, and the `--audit-level` default of `off`) is core to the
+  project's design — changes that weaken any of these by default need a clear
+  justification in the PR description. Run logs are committed to git, so anything that
+  puts *more* agent output into a log by default deserves particular scrutiny.
 
 ## Reporting bugs / requesting features
 

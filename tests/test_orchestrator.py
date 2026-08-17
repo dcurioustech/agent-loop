@@ -14,6 +14,7 @@ from typing import Callable, Optional
 import pytest
 
 from agent_loop import orchestrator
+from agent_loop import git_ops
 from agent_loop.orchestrator import LoopHalted, run_loop
 from agent_loop.providers.base import Provider
 from agent_loop.state import load_state
@@ -60,7 +61,7 @@ class FakeProvider(Provider):
     def build_argv(self, prompt: str) -> list[str]:  # pragma: no cover
         return [self.binary, prompt]
 
-    def run(self, prompt: str, timeout: int) -> int:  # type: ignore[override]
+    def run(self, prompt: str, timeout: int, audit_level: str = "full") -> int:  # type: ignore[override]
         self.prompts.append(prompt)
         return self.on_call(prompt) if self.on_call else 0
 
@@ -72,7 +73,9 @@ class FakeProvider(Provider):
 def _stub_git(monkeypatch):
     """Replace every git_ops call with a no-op so the loop can run anywhere."""
     monkeypatch.setattr(orchestrator.git_ops, "ensure_branch", lambda branch: None)
-    monkeypatch.setattr(orchestrator.git_ops, "require_clean_worktree", lambda: None)
+    monkeypatch.setattr(
+        orchestrator.git_ops, "require_clean_worktree", lambda log_dir=None: None
+    )
     commits: list[str] = []
     monkeypatch.setattr(
         orchestrator.git_ops,
@@ -116,9 +119,94 @@ def test_developer_writes_then_reviewer_approves(tmp_path, _stub_git):
     final = load_state(state_path)
     assert final.get("phase0")["status"] == "approved"
     assert final.get("phase0")["attempts"] == 1
-    assert _stub_git == ["phase0: built", "phase0: approved"]
+    assert _stub_git == [
+        "phase0: built",
+        "phase0: approved",
+        "audit: completed run",
+    ]
     assert len(dev.prompts) == 1
     assert len(rev.prompts) == 1
+
+
+def test_loop_logs_agent_review_approval_and_commit_events(
+    tmp_path, monkeypatch, _stub_git, capsys
+):
+    """Every major loop action is emitted as a structured log event."""
+    state_path = _plan(tmp_path)
+
+    def developer_builds(_prompt):
+        state = load_state(state_path)
+        state.set_field("phase0", "status", "built")
+        state.set_field("phase0", "review_notes", "developer implementation notes")
+        state.save()
+        return 0
+
+    def reviewer_approves(_prompt):
+        state = load_state(state_path)
+        state.set_field("phase0", "status", "approved")
+        state.set_field("phase0", "review_notes", "reviewed and approved")
+        state.save()
+        return 0
+
+    def log_commit(message, log_dir=None):
+        git_ops._log_commit_statement(
+            message=message, status="committed", commit_hash="deadbeef"
+        )
+
+    monkeypatch.setattr(orchestrator.git_ops, "commit_checkpoint_changes", log_commit)
+
+    run_loop(
+        state_path=state_path,
+        developer=FakeProvider(name="dev", on_call=developer_builds),
+        reviewer=FakeProvider(name="rev", on_call=reviewer_approves),
+        max_review_attempts=3,
+        timeout=30,
+        audit_level="full",  # this test asserts on raw comment/prompt content
+    )
+
+    events: dict[str, list[dict]] = {}
+    for line in capsys.readouterr().out.splitlines():
+        if not line.startswith("[agent-loop] "):
+            continue
+        event, payload = line.removeprefix("[agent-loop] ").split(" ", maxsplit=1)
+        events.setdefault(event, []).append(json.loads(payload))
+
+    traces = events["AGENT_TRACE"]
+    assert {(trace["role"], trace["action"]) for trace in traces} == {
+        ("developer", "start"),
+        ("developer", "prompt"),
+        ("developer", "finish"),
+        ("reviewer", "start"),
+        ("reviewer", "prompt"),
+        ("reviewer", "finish"),
+    }
+    assert all(trace["checkpoint"] == "phase0" for trace in traces)
+    assert all(trace.get("outcome") == "completed" for trace in traces if trace["action"] == "finish")
+    assert [event["message"] for event in events["COMMIT_STATEMENT"]] == [
+        "phase0: built",
+        "phase0: approved",
+        "audit: completed run",
+    ]
+    assert all(event["commit_hash"] == "deadbeef" for event in events["COMMIT_STATEMENT"])
+    assert events["REVIEW_COMMENT"] == [
+        {
+            "checkpoint": "phase0",
+            "comment": "reviewed and approved",
+            "event": "REVIEW_COMMENT",
+            "review_attempt": 1,
+            "status": "approved",
+        }
+    ]
+    assert events["APPROVAL_COMMENT"] == [
+        {
+            "approval_status": "approved",
+            "checkpoint": "phase0",
+            "comment": "reviewed and approved",
+            "event": "APPROVAL_COMMENT",
+            "review_attempt": 1,
+            "source": "reviewer",
+        }
+    ]
 
 
 def test_already_approved_checkpoint_is_skipped(tmp_path, _stub_git):
@@ -127,7 +215,7 @@ def test_already_approved_checkpoint_is_skipped(tmp_path, _stub_git):
     rev = FakeProvider(name="rev", on_call=lambda _p: pytest.fail("rev must not run"))
 
     run_loop(state_path=state_path, developer=dev, reviewer=rev, max_review_attempts=3, timeout=30)
-    assert _stub_git == []
+    assert _stub_git == ["audit: completed run"]
 
 
 def test_already_built_resumes_at_review_gate(tmp_path, _stub_git):
@@ -143,7 +231,7 @@ def test_already_built_resumes_at_review_gate(tmp_path, _stub_git):
     rev = FakeProvider(name="rev", on_call=reviewer_approves)
 
     run_loop(state_path=state_path, developer=dev, reviewer=rev, max_review_attempts=3, timeout=30)
-    assert _stub_git == ["phase0: approved"]
+    assert _stub_git == ["phase0: approved", "audit: completed run"]
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +285,7 @@ def test_reviewer_rejects_then_developer_fixes_then_approved(tmp_path, _stub_git
         "phase0: built",
         "phase0: revision 1",
         "phase0: approved",
+        "audit: completed run",
     ]
 
 

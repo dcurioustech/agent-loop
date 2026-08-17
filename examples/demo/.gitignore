@@ -1,4 +1,6 @@
 __pycache__/
 *.pyc
 sample.txt
-demo-logs/
+
+# Note: logs/ is deliberately NOT ignored. agent-loop commits run logs as
+# audit artifacts -- that's the point of the audit-trail demo beat.

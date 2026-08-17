@@ -14,4 +14,6 @@ class AntigravityProvider(Provider):
         argv = [self.binary, "-p", prompt]
         if self.dangerous_enabled:
             argv.append("--dangerously-skip-permissions")
+        argv.extend(self._model_argv())
         return argv
+

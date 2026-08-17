@@ -26,6 +26,14 @@ class InvalidPlanState(ValueError):
     """Raised when plan_checkpoints.json fails schema validation."""
 
 
+class ProtectedBranchError(InvalidPlanState):
+    """Raised when a payload targets a protected branch (e.g. main, master)."""
+
+
+class DuplicateCheckpointError(InvalidPlanState):
+    """Raised when a payload contains two checkpoints with the same id."""
+
+
 class CheckpointNotFound(KeyError):
     def __init__(self, cid: str):
         super().__init__(cid)
@@ -129,7 +137,7 @@ def load_state(path: Path | str) -> PlanState:
     except json.JSONDecodeError as e:
         raise InvalidPlanState(f"State file is not valid JSON: {e}") from e
 
-    _validate(raw)
+    validate_payload(raw)
     return PlanState(
         path=path,
         plan_file=raw["plan_file"],
@@ -141,7 +149,12 @@ def load_state(path: Path | str) -> PlanState:
     )
 
 
-def _validate(raw: Any) -> None:
+def validate_payload(raw: Any) -> None:
+    """Schema-check a plan payload (dict, not yet written to disk).
+
+    Reused by `load_state` and by plan generation (see `plan_init.py`) so an
+    in-memory generated payload can be validated before it is ever written.
+    """
     if not isinstance(raw, dict):
         raise InvalidPlanState("Top-level must be a JSON object")
 
@@ -153,7 +166,7 @@ def _validate(raw: Any) -> None:
     if not isinstance(branch, str) or not branch:
         raise InvalidPlanState("'branch' must be a non-empty string")
     if branch in PROTECTED_BRANCHES:
-        raise InvalidPlanState(f"Refusing protected target branch: {branch}")
+        raise ProtectedBranchError(f"Refusing protected target branch: {branch}")
 
     if not isinstance(raw["plan_file"], str) or not raw["plan_file"]:
         raise InvalidPlanState("'plan_file' must be a non-empty string")
@@ -171,17 +184,50 @@ def _validate(raw: Any) -> None:
                 raise InvalidPlanState(
                     f"checkpoint #{idx}: missing required field '{f}'"
                 )
+
+        # Identify the checkpoint by index until 'id' is known to be a usable
+        # string; every message below can then name it.
+        if not isinstance(cp["id"], str) or not cp["id"]:
+            raise InvalidPlanState(f"checkpoint #{idx}: 'id' must be a non-empty string")
+        for f in ("name", "scope"):
+            if not isinstance(cp[f], str) or not cp[f]:
+                raise InvalidPlanState(
+                    f"checkpoint {cp['id']}: '{f}' must be a non-empty string"
+                )
+
         if cp["status"] not in ALLOWED_STATUSES:
             raise InvalidPlanState(
                 f"checkpoint {cp['id']}: invalid status {cp['status']!r}; "
                 f"allowed: {ALLOWED_STATUSES}"
             )
-        if not isinstance(cp["exit_criteria"], list):
+        # Non-empty: a checkpoint with no criteria gives the review gate
+        # nothing objective to check, so it can only ever be waved through.
+        if not isinstance(cp["exit_criteria"], list) or not cp["exit_criteria"]:
             raise InvalidPlanState(
-                f"checkpoint {cp['id']}: 'exit_criteria' must be a list"
+                f"checkpoint {cp['id']}: 'exit_criteria' must be a non-empty list"
             )
+        for c_idx, criterion in enumerate(cp["exit_criteria"]):
+            if not isinstance(criterion, str) or not criterion.strip():
+                raise InvalidPlanState(
+                    f"checkpoint {cp['id']}: 'exit_criteria[{c_idx}]' must be a "
+                    f"non-empty string"
+                )
+        # bool is an int subclass, so reject it explicitly. Negatives are
+        # rejected too: the loop counts up from 'attempts' toward
+        # max_review_attempts, so a negative one buys extra review rounds.
+        if (
+            not isinstance(cp["attempts"], int)
+            or isinstance(cp["attempts"], bool)
+            or cp["attempts"] < 0
+        ):
+            raise InvalidPlanState(
+                f"checkpoint {cp['id']}: 'attempts' must be a non-negative integer"
+            )
+        if not isinstance(cp["review_notes"], str):
+            raise InvalidPlanState(f"checkpoint {cp['id']}: 'review_notes' must be a string")
+
         if cp["id"] in seen_ids:
-            raise InvalidPlanState(f"duplicate checkpoint id: {cp['id']}")
+            raise DuplicateCheckpointError(f"duplicate checkpoint id: {cp['id']}")
         seen_ids.add(cp["id"])
 
     project = raw.get("project")
