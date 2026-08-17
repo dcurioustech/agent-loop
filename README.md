@@ -81,7 +81,7 @@ Point `--log-dir` outside the repository and the loop warns that logs will not b
 
 ### What the log contains
 
-Agent stdout and stderr are streamed into the log as well as to your terminal, so the log holds the agents' actual working output, not just the loop's own bookkeeping. Alongside it the loop emits structured, one-line JSON events that are easy to grep or parse:
+Agent stdout and stderr are streamed into the log as well as to your terminal, so the log can hold the agents' actual working output, not just the loop's own bookkeeping — subject to `--audit-level`, below. Alongside it the loop emits structured, one-line JSON events that are easy to grep or parse:
 
 | Event | Emitted when |
 | --- | --- |
@@ -95,6 +95,30 @@ Agent stdout and stderr are streamed into the log as well as to your terminal, s
 $ grep RUN_OUTCOME logs/loop_20260816_101500.log
 [agent-loop] RUN_OUTCOME {"branch": "feature-x", "event": "RUN_OUTCOME", "outcome": "completed"}
 ```
+
+### `--audit-level`: how much of that ends up in git
+
+Because logs are committed, anything an agent prints — or writes into a checkpoint's `review_notes` — becomes part of permanent git history the moment its commit is made. `--audit-level` controls how much of that actually reaches the log:
+
+| Level | Raw agent stdout/stderr | Prompts, review notes, comments | Structured events |
+| --- | --- | --- | --- |
+| `full` | logged as-is | logged as-is | logged |
+| `redacted` | scrubbed for known secret shapes first | scrubbed first | logged |
+| `off` (default) | not logged at all | replaced with a `<suppressed: N chars>` placeholder | logged |
+
+Resolution order: `--audit-level <level>` flag, then `AGENT_LOOP_AUDIT_LEVEL` env var, then `off`.
+
+```console
+agent-loop run --audit-level full       # everything, unfiltered
+agent-loop run --audit-level redacted   # best-effort secret scrub
+agent-loop run                          # off — structured events only, the safe default
+```
+
+At every level, agents still receive the real, unredacted prompt — `--audit-level` only changes what gets *logged*, never what an agent is told to do.
+
+**`redacted` is a best-effort net, not a guarantee.** It catches known secret *shapes* — AWS access keys, GitHub/Slack/OpenAI tokens, bearer tokens, PEM private-key blocks, `key: value`-style assignments — via regex over live, line-streamed subprocess output. It cannot catch a project's own custom secret formats, and a secret split across two flushed writes can slip through. Treat committed logs as something a human should skim before pushing, not as pre-cleared for a public remote — `off` is the only level with no raw-content exposure at all.
+
+The `--log-dir` worktree exemption above only ever tolerates changes to log *files*; it has no bearing on what those files contain — that's entirely `--audit-level`'s job.
 
 ## Generating a plan (`agent-loop init`)
 

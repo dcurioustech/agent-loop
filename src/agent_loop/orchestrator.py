@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from . import git_ops, safety
+from . import audit, git_ops, safety
 from .providers.base import Provider
 from .state import PlanState, load_state
 
@@ -49,6 +49,7 @@ def _run_agent(
     prompt: str,
     timeout: int,
     run_kind: str,
+    audit_level: str,
 ) -> int:
     """Run an agent while emitting start, prompt, and completion trace events."""
     common = {
@@ -58,9 +59,14 @@ def _run_agent(
         "run_kind": run_kind,
     }
     _log_event("AGENT_TRACE", action="start", timeout_seconds=timeout, **common)
-    _log_event("AGENT_TRACE", action="prompt", prompt=prompt, **common)
+    _log_event(
+        "AGENT_TRACE",
+        action="prompt",
+        prompt=audit.prepare_text(prompt, audit_level),
+        **common,
+    )
     try:
-        return_code = provider.run(prompt, timeout=timeout)
+        return_code = provider.run(prompt, timeout=timeout, audit_level=audit_level)
     except Exception as exc:
         _log_event(
             "AGENT_TRACE",
@@ -176,7 +182,9 @@ def run_loop(
     max_review_attempts: int = 3,
     timeout: int = 1800,
     log_dir: Optional[Path] = None,
+    audit_level: str = audit.DEFAULT_AUDIT_LEVEL,
 ) -> None:
+    audit.validate(audit_level)
     state = load_state(state_path)
     log_dir = log_dir or safety.default_log_dir()
     git_ops.ensure_branch(state.branch)
@@ -191,7 +199,7 @@ def run_loop(
                     "APPROVAL_COMMENT",
                     approval_status="approved",
                     checkpoint=cid,
-                    comment=cp["review_notes"],
+                    comment=audit.prepare_text(cp["review_notes"], audit_level),
                     source="existing_checkpoint",
                 )
                 continue
@@ -211,6 +219,7 @@ def run_loop(
                     prompt=developer_prompt(state, cid),
                     timeout=timeout,
                     run_kind="build",
+                    audit_level=audit_level,
                 )
                 git_ops.commit_checkpoint_changes(f"{cid}: built", log_dir=log_dir)
                 state = load_state(state_path)  # reload after agent mutation
@@ -234,6 +243,7 @@ def run_loop(
                     prompt=reviewer_prompt(state, cid),
                     timeout=timeout,
                     run_kind="review",
+                    audit_level=audit_level,
                 )
                 state = load_state(state_path)
                 reviewed_checkpoint = state.get(cid)
@@ -242,7 +252,7 @@ def run_loop(
                 _log_event(
                     "REVIEW_COMMENT",
                     checkpoint=cid,
-                    comment=notes,
+                    comment=audit.prepare_text(notes, audit_level),
                     review_attempt=attempts,
                     status=status,
                 )
@@ -253,7 +263,7 @@ def run_loop(
                         "APPROVAL_COMMENT",
                         approval_status="approved",
                         checkpoint=cid,
-                        comment=notes,
+                        comment=audit.prepare_text(notes, audit_level),
                         review_attempt=attempts,
                         source="reviewer",
                     )
@@ -274,6 +284,7 @@ def run_loop(
                     prompt=revision_prompt(state, cid, notes),
                     timeout=timeout,
                     run_kind="revision",
+                    audit_level=audit_level,
                 )
                 git_ops.commit_checkpoint_changes(
                     f"{cid}: revision {attempts}", log_dir=log_dir

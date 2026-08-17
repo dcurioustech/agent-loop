@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
 import pytest
 
-from agent_loop import git_ops, orchestrator
+from agent_loop import git_ops, orchestrator, safety
 from agent_loop.orchestrator import LoopHalted, run_loop
 from agent_loop.providers.base import Provider
 from agent_loop.state import load_state
@@ -197,7 +198,7 @@ class FakeProvider(Provider):
     def build_argv(self, prompt: str) -> list[str]:  # pragma: no cover
         return [self.binary, prompt]
 
-    def run(self, prompt: str, timeout: int) -> int:  # type: ignore[override]
+    def run(self, prompt: str, timeout: int, audit_level: str = "full") -> int:  # type: ignore[override]
         self.prompts.append(prompt)
         return self.on_call(prompt) if self.on_call else 0
 
@@ -390,3 +391,81 @@ def test_audit_commit_failure_does_not_mask_original_error(repo, monkeypatch):
             timeout=30,
             log_dir=logs,
         )
+
+
+# ---------------------------------------------------------------------------
+# --audit-level end to end: real subprocess agent, real tee, real commit.
+#
+# This is the strongest check available: it drives the exact path a secret
+# would actually take — a real child process prints it, Provider.run's pump
+# streams it through the real tee, and the result lands in a real git commit
+# — rather than asserting on any single layer in isolation.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _SecretPrintingProvider(Provider):
+    """A real subprocess that prints a secret and drives checkpoint state."""
+
+    name: str = "leaky"
+    binary: str = sys.executable
+    danger_env: str = "ALLOW_DANGEROUS_LEAKY"
+    secret: str = "AKIAABCDEFGHIJKLMNOP"
+    state_path: Path = None  # type: ignore[assignment]
+    new_status: str = "built"
+
+    def build_argv(self, prompt: str) -> list[str]:
+        script = (
+            f"print('the api key is {self.secret}')\n"
+            "import json\n"
+            f"p = r'{self.state_path}'\n"
+            "d = json.load(open(p))\n"
+            f"d['checkpoints'][0]['status'] = '{self.new_status}'\n"
+            "json.dump(d, open(p, 'w'), indent=2)\n"
+        )
+        return [sys.executable, "-u", "-c", script]
+
+    def preflight(self) -> None:
+        return
+
+
+@pytest.fixture
+def _restore_stdout():
+    """tee_stdout_to permanently rebinds sys.stdout; undo that after the test."""
+    real_stdout, real_stderr = sys.stdout, sys.stderr
+    yield
+    sys.stdout, sys.stderr = real_stdout, real_stderr
+
+
+@pytest.mark.parametrize(
+    "level,secret_should_survive",
+    [("full", True), ("redacted", False), ("off", False)],
+)
+def test_audit_level_controls_whether_secret_reaches_the_committed_log(
+    repo, _restore_stdout, level, secret_should_survive
+):
+    state_path = _plan(repo, status="pending")
+    log_dir = repo / "logs"
+    log_path = safety.open_log_file(log_dir)
+    safety.tee_stdout_to(log_path)
+
+    dev = _SecretPrintingProvider(state_path=state_path, new_status="built")
+    rev = _SecretPrintingProvider(state_path=state_path, new_status="approved")
+
+    run_loop(
+        state_path=state_path,
+        developer=dev,
+        reviewer=rev,
+        max_review_attempts=3,
+        timeout=30,
+        log_dir=log_dir,
+        audit_level=level,
+    )
+
+    rel_log = log_path.relative_to(repo)
+    committed = _git("show", f"HEAD:{rel_log.as_posix()}", cwd=repo).stdout
+
+    assert (dev.secret in committed) == secret_should_survive
+    if not secret_should_survive:
+        # The run must still be visible in the log — just without the secret.
+        assert "AGENT_TRACE" in committed

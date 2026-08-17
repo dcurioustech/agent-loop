@@ -61,7 +61,7 @@ class FakeProvider(Provider):
     def build_argv(self, prompt: str) -> list[str]:  # pragma: no cover
         return [self.binary, prompt]
 
-    def run(self, prompt: str, timeout: int) -> int:  # type: ignore[override]
+    def run(self, prompt: str, timeout: int, audit_level: str = "full") -> int:  # type: ignore[override]
         self.prompts.append(prompt)
         return self.on_call(prompt) if self.on_call else 0
 
@@ -161,6 +161,7 @@ def test_loop_logs_agent_review_approval_and_commit_events(
         reviewer=FakeProvider(name="rev", on_call=reviewer_approves),
         max_review_attempts=3,
         timeout=30,
+        audit_level="full",  # this test asserts on raw comment/prompt content
     )
 
     events: dict[str, list[dict]] = {}

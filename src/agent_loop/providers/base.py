@@ -8,6 +8,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
+from .. import audit
+
 
 class ProviderError(RuntimeError):
     pass
@@ -61,7 +63,7 @@ class Provider(ABC):
                 f"Missing CLI for provider '{self.name}': '{self.binary}' not on PATH."
             )
 
-    def run(self, prompt: str, timeout: int) -> int:
+    def run(self, prompt: str, timeout: int, audit_level: str = "full") -> int:
         """Stream the agent's output to the terminal *and* the run log.
 
         The child cannot simply inherit our stdout: `safety.tee_stdout_to`
@@ -72,8 +74,13 @@ class Provider(ABC):
         re-emitted through `print`, which does go through the tee.
 
         A pump thread forwards lines as they arrive so long runs stay live
-        rather than surfacing only once the agent exits.
+        rather than surfacing only once the agent exits. `audit_level` (see
+        `agent_loop.audit`) controls what that pump actually does with each
+        line: pass it through untouched (``full``), scrub known secret shapes
+        first (``redacted``), or drop it entirely (``off``) so nothing the
+        agent printed reaches the committed log.
         """
+        audit.validate(audit_level)
         argv = self.build_argv(prompt)
         proc = subprocess.Popen(
             argv,
@@ -84,9 +91,17 @@ class Provider(ABC):
             errors="replace",
         )
 
+        redactor = audit.StreamRedactor() if audit_level == "redacted" else None
+
         def _pump() -> None:
             assert proc.stdout is not None
             for line in proc.stdout:
+                if audit_level == "off":
+                    continue
+                if redactor is not None:
+                    line = redactor.feed_line(line)
+                    if not line:
+                        continue
                 print(line, end="", flush=True)
 
         pump = threading.Thread(target=_pump, daemon=True)

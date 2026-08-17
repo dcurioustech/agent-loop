@@ -160,6 +160,61 @@ def test_run_accepts_provider_overrides(tmp_path, monkeypatch, _stub_run_precond
     assert captured["timeout"] == 60
 
 
+def test_run_defaults_audit_level_to_off(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    captured: dict = {}
+    monkeypatch.delenv("AGENT_LOOP_AUDIT_LEVEL", raising=False)
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    rc = cli.main(["run", "--state", str(p)])
+    assert rc == 0
+    assert captured["audit_level"] == "off"
+
+
+def test_run_audit_level_flag_overrides_default(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    captured: dict = {}
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    rc = cli.main(["run", "--state", str(p), "--audit-level", "full"])
+    assert rc == 0
+    assert captured["audit_level"] == "full"
+
+
+def test_run_audit_level_falls_back_to_env_var(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    captured: dict = {}
+    monkeypatch.setenv("AGENT_LOOP_AUDIT_LEVEL", "redacted")
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    rc = cli.main(["run", "--state", str(p)])
+    assert rc == 0
+    assert captured["audit_level"] == "redacted"
+
+
+def test_run_flag_wins_over_audit_level_env_var(tmp_path, monkeypatch, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    captured: dict = {}
+    monkeypatch.setenv("AGENT_LOOP_AUDIT_LEVEL", "full")
+    monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
+    rc = cli.main(["run", "--state", str(p), "--audit-level", "off"])
+    assert rc == 0
+    assert captured["audit_level"] == "off"
+
+
+def test_run_rejects_unknown_audit_level_flag(tmp_path, capsys, _stub_run_preconditions):
+    p = _plan(tmp_path)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "--state", str(p), "--audit-level", "verbose"])
+
+
+def test_run_rejects_invalid_audit_level_env_var(
+    tmp_path, monkeypatch, capsys, _stub_run_preconditions
+):
+    p = _plan(tmp_path)
+    monkeypatch.setenv("AGENT_LOOP_AUDIT_LEVEL", "verbose")
+    rc = cli.main(["run", "--state", str(p)])
+    assert rc == 2
+    assert "verbose" in capsys.readouterr().err
+
+
 def test_run_uses_plan_models_when_no_flags(tmp_path, monkeypatch, _stub_run_preconditions):
     p = _plan(tmp_path, models={"developer": "opus-x", "reviewer": "codex-y"})
     captured: dict = {}

@@ -350,3 +350,55 @@ def test_run_times_out_and_keeps_partial_output(capsys):
     assert rc == 124
     assert "timed out after 1s" in out
     assert "before hang" in out
+
+
+# ---------------------------------------------------------------------------
+# run() honors audit_level for the child's real, streamed output
+# ---------------------------------------------------------------------------
+
+
+def test_run_full_audit_level_logs_child_output_untouched(capsys):
+    secret = "AKIAABCDEFGHIJKLMNOP"
+    rc = _ScriptProvider(f"print('key is {secret}')").run(
+        "PROMPT", timeout=30, audit_level="full"
+    )
+    assert rc == 0
+    assert secret in capsys.readouterr().out
+
+
+def test_run_redacted_audit_level_scrubs_child_output(capsys):
+    secret = "AKIAABCDEFGHIJKLMNOP"
+    rc = _ScriptProvider(f"print('key is {secret}')").run(
+        "PROMPT", timeout=30, audit_level="redacted"
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert secret not in out
+    assert "[REDACTED:" in out
+
+
+def test_run_off_audit_level_suppresses_child_output_entirely(capsys):
+    rc = _ScriptProvider("print('anything the agent said')").run(
+        "PROMPT", timeout=30, audit_level="off"
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "anything the agent said" not in out
+
+
+def test_run_off_audit_level_still_reports_exit_code_and_timeout(capsys):
+    rc = _ScriptProvider(
+        "import time; print('secret progress'); time.sleep(60)"
+    ).run("PROMPT", timeout=1, audit_level="off")
+
+    out = capsys.readouterr().out
+    assert rc == 124
+    assert "timed out after 1s" in out  # agent-loop's own message, not the agent's
+    assert "secret progress" not in out
+
+
+def test_run_rejects_unknown_audit_level():
+    from agent_loop.audit import InvalidAuditLevel
+
+    with pytest.raises(InvalidAuditLevel):
+        _ScriptProvider("print('x')").run("PROMPT", timeout=30, audit_level="verbose")

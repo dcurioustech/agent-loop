@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from . import plan_init, safety
+from . import audit, plan_init, safety
 from .orchestrator import LoopHalted, run_loop
 from .providers import get_provider, known_provider_names
 from .providers.base import ProviderError
@@ -77,6 +77,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Per-agent-call timeout in seconds.",
     )
     run.add_argument("--log-dir", type=Path, default=None)
+    run.add_argument(
+        "--audit-level",
+        choices=audit.AUDIT_LEVELS,
+        default=None,
+        help="How much of the agents' output is committed to the run log: "
+        "'full' logs it as-is, 'redacted' scrubs known secret shapes first, "
+        "'off' logs only structured events (no raw agent output or notes). "
+        "Defaults to $AGENT_LOOP_AUDIT_LEVEL, or 'off' if that is unset — "
+        "logs are git-committed audit artifacts, so this leans safe by "
+        "default. Neither 'redacted' nor 'off' is a compliance guarantee; "
+        "see README for what each level actually does.",
+    )
 
     validate = sub.add_parser("validate", help="Schema-check the state file.")
     _add_state_arg(validate)
@@ -190,13 +202,22 @@ def _cmd_run(args) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
 
+    try:
+        audit_level = args.audit_level or audit.default_audit_level()
+    except audit.InvalidAuditLevel as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
     log_dir = args.log_dir or safety.default_log_dir()
     log_path = safety.open_log_file(log_dir)
     safety.tee_stdout_to(log_path)
     def _role(p) -> str:
         return f"{p.name}({p.model})" if p.model else p.name
 
-    print(f"### agent-loop | developer={_role(dev)} reviewer={_role(rev)} log={log_path}")
+    print(
+        f"### agent-loop | developer={_role(dev)} reviewer={_role(rev)} "
+        f"log={log_path} audit-level={audit_level}"
+    )
 
     try:
         with safety.lockfile(safety.default_lock_path()):
@@ -207,6 +228,7 @@ def _cmd_run(args) -> int:
                 max_review_attempts=args.max_review_attempts,
                 timeout=args.timeout,
                 log_dir=log_dir,
+                audit_level=audit_level,
             )
     except safety.LockHeld as e:
         print(f"error: {e}", file=sys.stderr)
