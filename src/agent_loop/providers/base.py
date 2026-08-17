@@ -3,13 +3,20 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
+from .. import audit
+
 
 class ProviderError(RuntimeError):
     pass
+
+
+#: Grace period for the output pump to drain after the child exits.
+_PUMP_JOIN_SECONDS = 5
 
 
 @dataclass
@@ -56,16 +63,63 @@ class Provider(ABC):
                 f"Missing CLI for provider '{self.name}': '{self.binary}' not on PATH."
             )
 
-    def run(self, prompt: str, timeout: int) -> int:
+    def run(self, prompt: str, timeout: int, audit_level: str = "full") -> int:
+        """Stream the agent's output to the terminal *and* the run log.
+
+        The child cannot simply inherit our stdout: `safety.tee_stdout_to`
+        rebinds `sys.stdout` at the Python level, while a subprocess writes to
+        the inherited file descriptor 1 directly. Anything the agent printed
+        would reach the terminal and bypass the log entirely — which is most of
+        what an audit trail is for. So its output is piped back here and
+        re-emitted through `print`, which does go through the tee.
+
+        A pump thread forwards lines as they arrive so long runs stay live
+        rather than surfacing only once the agent exits. `audit_level` (see
+        `agent_loop.audit`) controls what that pump actually does with each
+        line: pass it through untouched (``full``), scrub known secret shapes
+        first (``redacted``), or drop it entirely (``off``) so nothing the
+        agent printed reaches the committed log.
+        """
+        audit.validate(audit_level)
         argv = self.build_argv(prompt)
+        proc = subprocess.Popen(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            errors="replace",
+        )
+
+        redactor = audit.StreamRedactor() if audit_level == "redacted" else None
+
+        def _pump() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                if audit_level == "off":
+                    continue
+                if redactor is not None:
+                    line = redactor.feed_line(line)
+                    if not line:
+                        continue
+                print(line, end="", flush=True)
+
+        pump = threading.Thread(target=_pump, daemon=True)
+        pump.start()
         try:
-            return subprocess.run(argv, timeout=timeout).returncode
+            proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            pump.join(timeout=_PUMP_JOIN_SECONDS)
             print(
                 f"[agent-loop] {self.name} timed out after {timeout}s",
                 flush=True,
             )
             return 124
+
+        pump.join(timeout=_PUMP_JOIN_SECONDS)
+        return proc.returncode
 
     def run_captured(self, prompt: str, timeout: int) -> CapturedResult:
         """Run the provider non-interactively, capturing stdout/stderr.

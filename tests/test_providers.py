@@ -6,6 +6,7 @@ fall back to a permission-prompted invocation in an unattended run.
 from __future__ import annotations
 
 import subprocess
+import sys
 
 import pytest
 
@@ -15,7 +16,7 @@ from agent_loop.providers import (
     get_provider,
     known_provider_names,
 )
-from agent_loop.providers.base import CapturedResult
+from agent_loop.providers.base import CapturedResult, Provider
 
 
 # ---------------------------------------------------------------------------
@@ -300,28 +301,104 @@ def test_run_captured_does_not_print_to_stdout(monkeypatch, capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_run_still_uses_streaming_subprocess_call_unchanged(monkeypatch):
-    """Guards against `run_captured` accidentally changing `run`'s behavior."""
-    calls = []
+class _ScriptProvider(Provider):
+    """Runs a real python child so `run`'s streaming is exercised for real."""
 
-    def fake_run(argv, timeout):
-        calls.append({"argv": argv, "timeout": timeout})
-        return subprocess.CompletedProcess(argv, returncode=0)
+    name = "script"
+    binary = sys.executable
+    danger_env = "ALLOW_DANGEROUS_SCRIPT"
 
-    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
-    provider = get_provider("claude")
-    rc = provider.run("PROMPT", timeout=30)
+    def __init__(self, script: str) -> None:
+        super().__init__()
+        self._script = script
+
+    def build_argv(self, prompt: str) -> list[str]:
+        return [sys.executable, "-u", "-c", self._script]
+
+
+def test_run_streams_child_output_through_sys_stdout(capsys):
+    """The child's output must pass through `sys.stdout` so the log tee sees it.
+
+    Regression: `run` used to let the child inherit fd 1 directly, so agent
+    output reached the terminal but never the run log.
+    """
+    rc = _ScriptProvider("print('AGENT THINKING')").run("PROMPT", timeout=30)
 
     assert rc == 0
-    assert calls == [{"argv": provider.build_argv("PROMPT"), "timeout": 30}]
+    assert "AGENT THINKING" in capsys.readouterr().out
 
 
-def test_run_still_times_out_the_same_way_unchanged(monkeypatch, capsys):
-    def fake_run(argv, timeout):
-        raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
+def test_run_captures_child_stderr_too(capsys):
+    rc = _ScriptProvider(
+        "import sys; print('to stderr', file=sys.stderr)"
+    ).run("PROMPT", timeout=30)
 
-    monkeypatch.setattr("agent_loop.providers.base.subprocess.run", fake_run)
-    rc = get_provider("claude").run("PROMPT", timeout=5)
+    assert rc == 0
+    assert "to stderr" in capsys.readouterr().out
 
+
+def test_run_propagates_child_exit_code():
+    assert _ScriptProvider("raise SystemExit(3)").run("PROMPT", timeout=30) == 3
+
+
+def test_run_times_out_and_keeps_partial_output(capsys):
+    rc = _ScriptProvider(
+        "import time; print('before hang'); time.sleep(60)"
+    ).run("PROMPT", timeout=1)
+
+    out = capsys.readouterr().out
     assert rc == 124
-    assert "timed out after 5s" in capsys.readouterr().out
+    assert "timed out after 1s" in out
+    assert "before hang" in out
+
+
+# ---------------------------------------------------------------------------
+# run() honors audit_level for the child's real, streamed output
+# ---------------------------------------------------------------------------
+
+
+def test_run_full_audit_level_logs_child_output_untouched(capsys):
+    secret = "AKIAABCDEFGHIJKLMNOP"
+    rc = _ScriptProvider(f"print('key is {secret}')").run(
+        "PROMPT", timeout=30, audit_level="full"
+    )
+    assert rc == 0
+    assert secret in capsys.readouterr().out
+
+
+def test_run_redacted_audit_level_scrubs_child_output(capsys):
+    secret = "AKIAABCDEFGHIJKLMNOP"
+    rc = _ScriptProvider(f"print('key is {secret}')").run(
+        "PROMPT", timeout=30, audit_level="redacted"
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert secret not in out
+    assert "[REDACTED:" in out
+
+
+def test_run_off_audit_level_suppresses_child_output_entirely(capsys):
+    rc = _ScriptProvider("print('anything the agent said')").run(
+        "PROMPT", timeout=30, audit_level="off"
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "anything the agent said" not in out
+
+
+def test_run_off_audit_level_still_reports_exit_code_and_timeout(capsys):
+    rc = _ScriptProvider(
+        "import time; print('secret progress'); time.sleep(60)"
+    ).run("PROMPT", timeout=1, audit_level="off")
+
+    out = capsys.readouterr().out
+    assert rc == 124
+    assert "timed out after 1s" in out  # agent-loop's own message, not the agent's
+    assert "secret progress" not in out
+
+
+def test_run_rejects_unknown_audit_level():
+    from agent_loop.audit import InvalidAuditLevel
+
+    with pytest.raises(InvalidAuditLevel):
+        _ScriptProvider("print('x')").run("PROMPT", timeout=30, audit_level="verbose")
