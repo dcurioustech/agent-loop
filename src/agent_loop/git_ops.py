@@ -55,14 +55,23 @@ def ensure_branch(branch: str) -> None:
 
 
 def _relative_log_prefix(log_dir: Path | None) -> str | None:
-    """Return the repo-relative ``logs/`` prefix, or None if not inside the repo."""
+    """Return the repo-relative ``logs/`` prefix, or None if not inside the repo.
+
+    Raises GitError if log_dir is the repository root itself, as that would
+    bypass all security checks by matching every file in the working tree.
+    """
     if log_dir is None:
         return None
     try:
         rel = log_dir.resolve().relative_to(repo_root().resolve())
     except (ValueError, GitError):
         return None
-    return f"{rel}/" if str(rel) != "." else ""
+    if str(rel) == ".":
+        raise GitError(
+            "Log directory cannot be the repository root itself. "
+            "Use a subdirectory like 'logs/' instead."
+        )
+    return f"{rel}/"
 
 
 def require_clean_worktree(log_dir: Path | None = None) -> None:

@@ -182,6 +182,27 @@ def test_external_log_dir_does_not_exempt_worktree_changes(repo, tmp_path):
         git_ops.require_clean_worktree(log_dir=external)
 
 
+def test_repository_root_as_log_dir_is_rejected(repo):
+    """The repository root cannot be used as log_dir, as that would bypass all
+    security checks by matching every file in the working tree."""
+    (repo / "code.py").write_text("uncommitted edit\n")
+
+    # Attempting to use repo root as log_dir must fail in require_clean_worktree
+    with pytest.raises(
+        git_ops.GitError,
+        match="Log directory cannot be the repository root itself",
+    ):
+        git_ops.require_clean_worktree(log_dir=repo)
+
+    # It must also fail in commit_checkpoint_changes
+    (repo / "code.py").write_text("some change\n")
+    with pytest.raises(
+        git_ops.GitError,
+        match="Log directory cannot be the repository root itself",
+    ):
+        git_ops.commit_checkpoint_changes("test: change", log_dir=repo)
+
+
 # ---------------------------------------------------------------------------
 # Run lifecycle commits, driven through run_loop against real git
 # ---------------------------------------------------------------------------
