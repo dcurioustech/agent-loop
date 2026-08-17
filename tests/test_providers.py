@@ -142,6 +142,7 @@ def test_danger_env_is_strict_one(monkeypatch, name, env_var):
         ("codex", ["codex", "exec", "--full-auto", "-m", "M", "PROMPT"]),
         ("grok", ["grok", "-p", "PROMPT", "--model", "M"]),
         ("gemini", ["gemini", "-p", "PROMPT", "-m", "M"]),
+        ("antigravity", ["agy", "-p", "PROMPT", "--model", "M"]),
     ],
 )
 def test_model_is_appended_with_provider_flag(monkeypatch, name, expected):
@@ -150,6 +151,7 @@ def test_model_is_appended_with_provider_flag(monkeypatch, name, expected):
         "ALLOW_DANGEROUS_CODEX",
         "ALLOW_DANGEROUS_GROK",
         "ALLOW_DANGEROUS_GEMINI",
+        "ALLOW_DANGEROUS_ANTIGRAVITY",
     ):
         monkeypatch.delenv(env, raising=False)
 

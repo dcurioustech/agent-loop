@@ -1,8 +1,9 @@
 """The checkpoint-gated developer/reviewer loop."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from . import git_ops, safety
 from .providers.base import Provider
@@ -11,6 +12,56 @@ from .state import PlanState, load_state
 
 class LoopHalted(RuntimeError):
     """Raised when a checkpoint cannot be approved within max_review_attempts."""
+
+
+def _log_event(event: str, **fields: Any) -> None:
+    """Print a stable, machine-readable event captured by the loop log tee."""
+    print(
+        f"[agent-loop] {event} "
+        f"{json.dumps({'event': event, **fields}, sort_keys=True, default=str)}",
+        flush=True,
+    )
+
+
+def _run_agent(
+    *,
+    provider: Provider,
+    role: str,
+    checkpoint: str,
+    prompt: str,
+    timeout: int,
+    run_kind: str,
+) -> int:
+    """Run an agent while emitting start, prompt, and completion trace events."""
+    common = {
+        "checkpoint": checkpoint,
+        "provider": provider.name,
+        "role": role,
+        "run_kind": run_kind,
+    }
+    _log_event("AGENT_TRACE", action="start", timeout_seconds=timeout, **common)
+    _log_event("AGENT_TRACE", action="prompt", prompt=prompt, **common)
+    try:
+        return_code = provider.run(prompt, timeout=timeout)
+    except Exception as exc:
+        _log_event(
+            "AGENT_TRACE",
+            action="finish",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            outcome="error",
+            **common,
+        )
+        raise
+
+    _log_event(
+        "AGENT_TRACE",
+        action="finish",
+        outcome="completed",
+        return_code=return_code,
+        **common,
+    )
+    return return_code
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +169,13 @@ def run_loop(
         cp = state.get(cid)
         if cp["status"] == "approved":
             print(f">> {cid} already approved — skip", flush=True)
+            _log_event(
+                "APPROVAL_COMMENT",
+                approval_status="approved",
+                checkpoint=cid,
+                comment=cp["review_notes"],
+                source="existing_checkpoint",
+            )
             continue
 
         print(
@@ -128,7 +186,14 @@ def run_loop(
         )
 
         if cp["status"] != "built":
-            developer.run(developer_prompt(state, cid), timeout=timeout)
+            _run_agent(
+                provider=developer,
+                role="developer",
+                checkpoint=cid,
+                prompt=developer_prompt(state, cid),
+                timeout=timeout,
+                run_kind="build",
+            )
             git_ops.commit_checkpoint_changes(f"{cid}: built", log_dir=log_dir)
             state = load_state(state_path)  # reload after agent mutation
         else:
@@ -141,12 +206,36 @@ def run_loop(
             state.save()
             print(f"--- {cid} review attempt {attempts}/{max_review_attempts} ---", flush=True)
 
-            reviewer.run(reviewer_prompt(state, cid), timeout=timeout)
+            _run_agent(
+                provider=reviewer,
+                role="reviewer",
+                checkpoint=cid,
+                prompt=reviewer_prompt(state, cid),
+                timeout=timeout,
+                run_kind="review",
+            )
             state = load_state(state_path)
-            status = state.get(cid)["status"]
+            reviewed_checkpoint = state.get(cid)
+            status = reviewed_checkpoint["status"]
+            notes = reviewed_checkpoint["review_notes"]
+            _log_event(
+                "REVIEW_COMMENT",
+                checkpoint=cid,
+                comment=notes,
+                review_attempt=attempts,
+                status=status,
+            )
 
             if status == "approved":
                 print(f">> {cid} APPROVED", flush=True)
+                _log_event(
+                    "APPROVAL_COMMENT",
+                    approval_status="approved",
+                    checkpoint=cid,
+                    comment=notes,
+                    review_attempt=attempts,
+                    source="reviewer",
+                )
                 git_ops.commit_checkpoint_changes(f"{cid}: approved", log_dir=log_dir)
                 break
 
@@ -155,8 +244,14 @@ def run_loop(
                     f"{cid} not approved after {attempts} attempts — halting for human review."
                 )
 
-            notes = state.get(cid)["review_notes"]
-            developer.run(revision_prompt(state, cid, notes), timeout=timeout)
+            _run_agent(
+                provider=developer,
+                role="developer",
+                checkpoint=cid,
+                prompt=revision_prompt(state, cid, notes),
+                timeout=timeout,
+                run_kind="revision",
+            )
             git_ops.commit_checkpoint_changes(
                 f"{cid}: revision {attempts}", log_dir=log_dir
             )

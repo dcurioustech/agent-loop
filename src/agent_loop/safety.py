@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from .git_ops import GitError, repo_root
 from .providers.base import Provider
 
 
@@ -91,7 +92,13 @@ def tee_stdout_to(log_path: Path) -> None:
 
 
 def default_log_dir() -> Path:
-    return Path(os.environ.get("LOG_DIR", "/tmp/agent_loop_logs"))
+    configured = os.environ.get("LOG_DIR")
+    if configured:
+        return Path(configured)
+    try:
+        return repo_root() / "logs"
+    except GitError:
+        return Path("logs")
 
 
 def default_lock_path() -> Path:
