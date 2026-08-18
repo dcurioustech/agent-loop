@@ -4,6 +4,13 @@ A checkpoint-gated developer/reviewer loop. One coding-agent CLI plays **develop
 
 Originally extracted from a Flutter project's `run_loop.sh`. Project-agnostic: build / test / lint commands are declared per project in `plan_checkpoints.json`.
 
+## Community and licensing
+
+agent-loop is open source under the [MIT License](LICENSE). Contributions are
+welcome—read the [contribution guidelines](CONTRIBUTING.md), follow the
+[Code of Conduct](CODE_OF_CONDUCT.md), and report vulnerabilities according to
+the [Security Policy](SECURITY.md).
+
 ## Install
 
 ```

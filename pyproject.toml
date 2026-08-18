@@ -9,7 +9,10 @@ description = "Checkpoint-gated developer/reviewer loop across Claude Code, Code
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "Dwaraka Ramana Turlapati" }]
-license = { text = "MIT" }
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 
 [project.scripts]
 agent-loop = "agent_loop.cli:main"
