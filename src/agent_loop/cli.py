@@ -197,8 +197,8 @@ def _cmd_run(args) -> int:
     try:
         dev.preflight()
         rev.preflight()
-        safety.require_danger_gates([dev, rev])
-    except (ProviderError, safety.DangerGateError) as e:
+        safety.require_auto_mode_gates([dev, rev])
+    except (ProviderError, safety.AutoModeGateError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 

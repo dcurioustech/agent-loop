@@ -149,7 +149,7 @@ def test_validated_payload_round_trips_through_load_state(tmp_path):
 class FakeProvider(Provider):
     name = "fake"
     binary = "fake"
-    danger_env = "ALLOW_DANGEROUS_FAKE"
+    auto_mode_env = "ALLOW_AUTO_MODE_FAKE"
 
     def __init__(self, result: CapturedResult) -> None:
         super().__init__()

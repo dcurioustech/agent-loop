@@ -212,7 +212,7 @@ def test_repository_root_as_log_dir_is_rejected(repo):
 class FakeProvider(Provider):
     name: str = "fake"
     binary: str = "fake"
-    danger_env: str = "ALLOW_DANGEROUS_FAKE"
+    auto_mode_env: str = "ALLOW_AUTO_MODE_FAKE"
     on_call: Optional[Callable[[str], int]] = None
     prompts: list[str] = field(default_factory=list)
 
@@ -430,7 +430,7 @@ class _SecretPrintingProvider(Provider):
 
     name: str = "leaky"
     binary: str = sys.executable
-    danger_env: str = "ALLOW_DANGEROUS_LEAKY"
+    auto_mode_env: str = "ALLOW_AUTO_MODE_LEAKY"
     secret: str = "AKIAABCDEFGHIJKLMNOP"
     state_path: Path = None  # type: ignore[assignment]
     new_status: str = "built"

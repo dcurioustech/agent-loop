@@ -1,4 +1,4 @@
-"""Lockfile, log directory, and danger-flag gating."""
+"""Lockfile, log directory, and auto-mode-flag gating."""
 from __future__ import annotations
 
 import os
@@ -15,7 +15,7 @@ class LockHeld(RuntimeError):
     pass
 
 
-class DangerGateError(RuntimeError):
+class AutoModeGateError(RuntimeError):
     pass
 
 
@@ -43,13 +43,13 @@ def open_log_file(log_dir: Path) -> Path:
     return log_dir / f"loop_{stamp}.log"
 
 
-def require_danger_gates(providers: list[Provider]) -> None:
+def require_auto_mode_gates(providers: list[Provider]) -> None:
     """Refuse to launch if any assigned provider's write-mode env isn't set.
 
     Mirrors the bash script's refusal for prompt-only Claude — every coding-agent
-    CLI in v1 expects yolo/danger mode for unattended runs.
+    CLI in v1 expects yolo/auto mode for unattended runs.
     """
-    blocked = [p for p in providers if not p.dangerous_enabled]
+    blocked = [p for p in providers if not p.auto_mode_enabled]
     if not blocked:
         return
 
@@ -59,7 +59,7 @@ def require_danger_gates(providers: list[Provider]) -> None:
         "",
     ]
     for p in blocked:
-        lines.append(f"  {p.name:8s}  set {p.danger_env}=1")
+        lines.append(f"  {p.name:8s}  set {p.auto_mode_env}=1")
     lines.extend(
         [
             "",
@@ -67,7 +67,7 @@ def require_danger_gates(providers: list[Provider]) -> None:
             "Re-run with the missing env vars exported.",
         ]
     )
-    raise DangerGateError("\n".join(lines))
+    raise AutoModeGateError("\n".join(lines))
 
 
 def tee_stdout_to(log_path: Path) -> None:

@@ -8,13 +8,13 @@ from . import register
 class CodexProvider(Provider):
     name = "codex"
     binary = "codex"
-    danger_env = "ALLOW_DANGEROUS_CODEX"
+    auto_mode_env = "ALLOW_AUTO_MODE_CODEX"
     model_flag = "-m"
 
     def build_argv(self, prompt: str) -> list[str]:
         flag = (
             "--dangerously-bypass-approvals-and-sandbox"
-            if self.dangerous_enabled
+            if self.auto_mode_enabled
             else "--full-auto"
         )
         # Model must precede the positional prompt so `exec` parses it as a flag.

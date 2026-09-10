@@ -54,7 +54,7 @@ def _plan(tmp_path: Path, status: str = "pending", attempts: int = 0) -> Path:
 class FakeProvider(Provider):
     name: str = "fake"
     binary: str = "fake"
-    danger_env: str = "ALLOW_DANGEROUS_FAKE"
+    auto_mode_env: str = "ALLOW_AUTO_MODE_FAKE"
     on_call: Optional[Callable[[str], int]] = None
     prompts: list[str] = field(default_factory=list)
 
@@ -86,8 +86,8 @@ def _stub_git(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _bypass_danger_gates(monkeypatch):
-    monkeypatch.setattr(orchestrator.safety, "require_danger_gates", lambda providers: None)
+def _bypass_auto_mode_gates(monkeypatch):
+    monkeypatch.setattr(orchestrator.safety, "require_auto_mode_gates", lambda providers: None)
 
 
 # ---------------------------------------------------------------------------

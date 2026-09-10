@@ -101,11 +101,11 @@ def test_status_includes_branch(tmp_path, capsys):
 
 @pytest.fixture
 def _stub_run_preconditions(monkeypatch):
-    """Bypass binary preflight, danger gates, lockfile, and log tee for `run` tests."""
+    """Bypass binary preflight, auto mode gates, lockfile, and log tee for `run` tests."""
     from agent_loop.providers.base import Provider
 
     monkeypatch.setattr(Provider, "preflight", lambda self: None)
-    monkeypatch.setattr(cli.safety, "require_danger_gates", lambda providers: None)
+    monkeypatch.setattr(cli.safety, "require_auto_mode_gates", lambda providers: None)
     monkeypatch.setattr(cli.safety, "open_log_file", lambda _d: Path("/tmp/agent_loop_test.log"))
     monkeypatch.setattr(cli.safety, "tee_stdout_to", lambda _p: None)
 
@@ -329,7 +329,7 @@ def _plan_json(*ids: str) -> str:
 class _FakeInitProvider(Provider):
     name = "fake"
     binary = "fake"
-    danger_env = "ALLOW_DANGEROUS_FAKE"
+    auto_mode_env = "ALLOW_AUTO_MODE_FAKE"
 
     def __init__(
         self,
