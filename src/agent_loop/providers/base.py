@@ -37,7 +37,7 @@ class CapturedResult:
 class Provider(ABC):
     name: str
     binary: str
-    danger_env: str
+    auto_mode_env: str
     #: Flag this CLI uses to pin a model; overridable per provider.
     model_flag: str = "--model"
 
@@ -54,8 +54,8 @@ class Provider(ABC):
         return [self.model_flag, self.model] if self.model else []
 
     @property
-    def dangerous_enabled(self) -> bool:
-        return os.environ.get(self.danger_env, "0") == "1"
+    def auto_mode_enabled(self) -> bool:
+        return os.environ.get(self.auto_mode_env, "0") == "1"
 
     def preflight(self) -> None:
         if shutil.which(self.binary) is None:

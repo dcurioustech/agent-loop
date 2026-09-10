@@ -52,13 +52,13 @@ makes sense for the CLI you assigned to that role. Under the hood the model is p
 Safety envs (per provider, off by default):
 
 ```
-ALLOW_DANGEROUS_CLAUDE=1   # claude --dangerously-skip-permissions
-ALLOW_DANGEROUS_CODEX=1    # codex exec --dangerously-bypass-approvals-and-sandbox
-ALLOW_DANGEROUS_GROK=1     # grok --always-approve
-ALLOW_DANGEROUS_ANTIGRAVITY=1  # agy --dangerously-skip-permissions
+ALLOW_AUTO_MODE_CLAUDE=1   # claude --dangerously-skip-permissions
+ALLOW_AUTO_MODE_CODEX=1    # codex exec --dangerously-bypass-approvals-and-sandbox
+ALLOW_AUTO_MODE_GROK=1     # grok --always-approve
+ALLOW_AUTO_MODE_ANTIGRAVITY=1  # agy --dangerously-skip-permissions
 ```
 
-The loop refuses to start unless the assigned provider's danger gate is set, so unattended runs cannot stall on a permission prompt.
+The loop refuses to start unless the assigned provider's auto mode gate is set, so unattended runs cannot stall on a permission prompt.
 
 ## Run logs and the audit trail
 

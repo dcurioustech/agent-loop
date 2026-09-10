@@ -8,11 +8,11 @@ from . import register
 class GrokProvider(Provider):
     name = "grok"
     binary = "grok"
-    danger_env = "ALLOW_DANGEROUS_GROK"
+    auto_mode_env = "ALLOW_AUTO_MODE_GROK"
 
     def build_argv(self, prompt: str) -> list[str]:
         argv = [self.binary, "-p", prompt]
-        if self.dangerous_enabled:
+        if self.auto_mode_enabled:
             argv.append("--always-approve")
         argv.extend(self._model_argv())
         return argv

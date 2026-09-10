@@ -49,23 +49,23 @@ def test_get_provider_rejects_unknown_name():
     ],
 )
 def test_default_argv_is_safe_mode(monkeypatch, name, expected):
-    # Make sure no danger env leaks in from the host shell.
+    # Make sure no auto mode env leaks in from the host shell.
     for env in (
-        "ALLOW_DANGEROUS_CLAUDE",
-        "ALLOW_DANGEROUS_CODEX",
-        "ALLOW_DANGEROUS_GROK",
-        "ALLOW_DANGEROUS_GEMINI",
-        "ALLOW_DANGEROUS_ANTIGRAVITY",
+        "ALLOW_AUTO_MODE_CLAUDE",
+        "ALLOW_AUTO_MODE_CODEX",
+        "ALLOW_AUTO_MODE_GROK",
+        "ALLOW_AUTO_MODE_GEMINI",
+        "ALLOW_AUTO_MODE_ANTIGRAVITY",
     ):
         monkeypatch.delenv(env, raising=False)
 
     provider = get_provider(name)
     assert provider.build_argv("PROMPT") == expected
-    assert provider.dangerous_enabled is False
+    assert provider.auto_mode_enabled is False
 
 
 # ---------------------------------------------------------------------------
-# Dangerous (write-mode) argv when the per-provider gate is set
+# Auto mode (write-mode) argv when the per-provider gate is set
 # ---------------------------------------------------------------------------
 
 
@@ -74,56 +74,56 @@ def test_default_argv_is_safe_mode(monkeypatch, name, expected):
     [
         (
             "claude",
-            "ALLOW_DANGEROUS_CLAUDE",
+            "ALLOW_AUTO_MODE_CLAUDE",
             ["claude", "-p", "PROMPT", "--dangerously-skip-permissions", "--output-format", "text"],
         ),
         (
             "codex",
-            "ALLOW_DANGEROUS_CODEX",
+            "ALLOW_AUTO_MODE_CODEX",
             ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "PROMPT"],
         ),
         (
             "grok",
-            "ALLOW_DANGEROUS_GROK",
+            "ALLOW_AUTO_MODE_GROK",
             ["grok", "-p", "PROMPT", "--always-approve"],
         ),
         (
             "gemini",
-            "ALLOW_DANGEROUS_GEMINI",
+            "ALLOW_AUTO_MODE_GEMINI",
             ["gemini", "-p", "PROMPT", "--approval-mode", "yolo"],
         ),
         (
             "antigravity",
-            "ALLOW_DANGEROUS_ANTIGRAVITY",
+            "ALLOW_AUTO_MODE_ANTIGRAVITY",
             ["agy", "-p", "PROMPT", "--dangerously-skip-permissions"],
         ),
     ],
 )
-def test_dangerous_argv_when_gate_set(monkeypatch, name, env_var, expected):
+def test_auto_mode_argv_when_gate_set(monkeypatch, name, env_var, expected):
     monkeypatch.setenv(env_var, "1")
     provider = get_provider(name)
-    assert provider.dangerous_enabled is True
+    assert provider.auto_mode_enabled is True
     assert provider.build_argv("PROMPT") == expected
 
 
 @pytest.mark.parametrize(
     "name, env_var",
     [
-        ("claude", "ALLOW_DANGEROUS_CLAUDE"),
-        ("codex", "ALLOW_DANGEROUS_CODEX"),
-        ("grok", "ALLOW_DANGEROUS_GROK"),
-        ("gemini", "ALLOW_DANGEROUS_GEMINI"),
-        ("antigravity", "ALLOW_DANGEROUS_ANTIGRAVITY"),
+        ("claude", "ALLOW_AUTO_MODE_CLAUDE"),
+        ("codex", "ALLOW_AUTO_MODE_CODEX"),
+        ("grok", "ALLOW_AUTO_MODE_GROK"),
+        ("gemini", "ALLOW_AUTO_MODE_GEMINI"),
+        ("antigravity", "ALLOW_AUTO_MODE_ANTIGRAVITY"),
     ],
 )
-def test_danger_env_is_strict_one(monkeypatch, name, env_var):
-    """Anything other than the literal string "1" must NOT enable danger mode.
+def test_auto_mode_env_is_strict_one(monkeypatch, name, env_var):
+    """Anything other than the literal string "1" must NOT enable auto mode.
 
     Avoids surprises with values like "true", "yes", or "0".
     """
     for raw in ("0", "true", "yes", "True", ""):
         monkeypatch.setenv(env_var, raw)
-        assert get_provider(name).dangerous_enabled is False, (
+        assert get_provider(name).auto_mode_enabled is False, (
             f"{name} treated env value {raw!r} as enabled"
         )
 
@@ -148,11 +148,11 @@ def test_danger_env_is_strict_one(monkeypatch, name, env_var):
 )
 def test_model_is_appended_with_provider_flag(monkeypatch, name, expected):
     for env in (
-        "ALLOW_DANGEROUS_CLAUDE",
-        "ALLOW_DANGEROUS_CODEX",
-        "ALLOW_DANGEROUS_GROK",
-        "ALLOW_DANGEROUS_GEMINI",
-        "ALLOW_DANGEROUS_ANTIGRAVITY",
+        "ALLOW_AUTO_MODE_CLAUDE",
+        "ALLOW_AUTO_MODE_CODEX",
+        "ALLOW_AUTO_MODE_GROK",
+        "ALLOW_AUTO_MODE_GEMINI",
+        "ALLOW_AUTO_MODE_ANTIGRAVITY",
     ):
         monkeypatch.delenv(env, raising=False)
 
@@ -220,7 +220,7 @@ def test_every_provider_declares_required_attrs():
     for name, cls in PROVIDERS.items():
         assert cls.name == name
         assert isinstance(cls.binary, str) and cls.binary
-        assert cls.danger_env.startswith("ALLOW_DANGEROUS_")
+        assert cls.auto_mode_env.startswith("ALLOW_AUTO_MODE_")
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +306,7 @@ class _ScriptProvider(Provider):
 
     name = "script"
     binary = sys.executable
-    danger_env = "ALLOW_DANGEROUS_SCRIPT"
+    auto_mode_env = "ALLOW_AUTO_MODE_SCRIPT"
 
     def __init__(self, script: str) -> None:
         super().__init__()

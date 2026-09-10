@@ -8,11 +8,11 @@ from . import register
 class AntigravityProvider(Provider):
     name = "antigravity"
     binary = "agy"
-    danger_env = "ALLOW_DANGEROUS_ANTIGRAVITY"
+    auto_mode_env = "ALLOW_AUTO_MODE_ANTIGRAVITY"
 
     def build_argv(self, prompt: str) -> list[str]:
         argv = [self.binary, "-p", prompt]
-        if self.dangerous_enabled:
+        if self.auto_mode_enabled:
             argv.append("--dangerously-skip-permissions")
         argv.extend(self._model_argv())
         return argv
