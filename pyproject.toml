@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,7 +9,20 @@ description = "Checkpoint-gated developer/reviewer loop across Claude Code, Code
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "Dwaraka Ramana Turlapati" }]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["ai", "agents", "claude", "codex", "code-review", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development",
+]
+
+[project.urls]
+Homepage = "https://github.com/dcurioustech/agent-loop"
+Issues = "https://github.com/dcurioustech/agent-loop/issues"
 
 [project.scripts]
 agent-loop = "agent_loop.cli:main"

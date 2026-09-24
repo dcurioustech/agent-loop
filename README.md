@@ -7,9 +7,9 @@ Originally extracted from a Flutter project's `run_loop.sh`. Project-agnostic: b
 ## Install
 
 ```console
-pipx install git+https://github.com/dcurioustech/agent-loop.git
+pipx install agent-loop
 # or
-uv tool install git+https://github.com/dcurioustech/agent-loop.git
+uv tool install agent-loop
 ```
 
 Requires at least one of these CLIs on PATH, depending on the roles you pick:
