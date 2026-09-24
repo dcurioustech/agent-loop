@@ -6,10 +6,10 @@ Originally extracted from a Flutter project's `run_loop.sh`. Project-agnostic: b
 
 ## Install
 
-```
-pipx install -e ~/Documents/workspace/agent-loop-tool
+```console
+pipx install git+https://github.com/dcurioustech/agent-loop.git
 # or
-uv tool install -e ~/Documents/workspace/agent-loop-tool
+uv tool install git+https://github.com/dcurioustech/agent-loop.git
 ```
 
 Requires at least one of these CLIs on PATH, depending on the roles you pick:
@@ -26,7 +26,7 @@ Requires at least one of these CLIs on PATH, depending on the roles you pick:
 In a consumer repo containing `plan_checkpoints.json`:
 
 ```
-agent-loop validate                                  # schema-check + CLI preflight
+agent-loop validate                                  # schema-check the state file
 agent-loop status                                    # one-line summary per checkpoint
 agent-loop run                                       # developer=claude, reviewer=codex (defaults)
 agent-loop run --developer codex --reviewer claude
@@ -111,12 +111,12 @@ Resolution order: `--audit-level <level>` flag, then `AGENT_LOOP_AUDIT_LEVEL` en
 ```console
 agent-loop run --audit-level full       # everything, unfiltered
 agent-loop run --audit-level redacted   # best-effort secret scrub
-agent-loop run                          # off — structured events only, the safe default
+agent-loop run                          # off — structured log events only (default)
 ```
 
-At every level, agents still receive the real, unredacted prompt — `--audit-level` only changes what gets *logged*, never what an agent is told to do.
+At every level, agents still receive the real, unredacted prompt — `--audit-level` only changes what gets *logged*, never what an agent is told to do. The state file retains `review_notes` as written by the agents and is committed with checkpoint changes, regardless of audit level.
 
-**`redacted` is a best-effort net, not a guarantee.** It catches known secret *shapes* — AWS access keys, GitHub/Slack/OpenAI tokens, bearer tokens, PEM private-key blocks, `key: value`-style assignments — via regex over live, line-streamed subprocess output. It cannot catch a project's own custom secret formats, and a secret split across two flushed writes can slip through. Treat committed logs as something a human should skim before pushing, not as pre-cleared for a public remote — `off` is the only level with no raw-content exposure at all.
+**`redacted` is a best-effort net, not a guarantee.** It catches known secret *shapes* — AWS access keys, GitHub/Slack/OpenAI tokens, bearer tokens, PEM private-key blocks, `key: value`-style assignments — via regex over live, line-streamed subprocess output. It cannot catch a project's own custom secret formats, and a secret split across two flushed writes can slip through. Treat committed logs as something a human should skim before pushing, not as pre-cleared for a public remote. `off` suppresses raw content in the log, but does not redact the state file.
 
 The `--log-dir` worktree exemption above only ever tolerates changes to log *files*; it has no bearing on what those files contain — that's entirely `--audit-level`'s job.
 
@@ -172,11 +172,11 @@ agent-loop init "Add a login page" && agent-loop validate && agent-loop status
 
 ## Bootstrapping a new consumer repo
 
-Copy the shipped example as your starting point and edit `branch`, `plan_file`, and the project block to match your stack:
+Download the example as your starting point and edit `branch`, `plan_file`, and the project block to match your stack:
 
 ```
-cp ~/Documents/workspace/agent-loop-tool/examples/plan_checkpoints.example.json \
-   ./plan_checkpoints.json
+curl -L https://raw.githubusercontent.com/dcurioustech/agent-loop/main/examples/plan_checkpoints.example.json \
+  -o plan_checkpoints.json
 agent-loop validate
 ```
 
