@@ -27,5 +27,4 @@ def known_provider_names() -> list[str]:
 from . import antigravity as _antigravity  # noqa: E402, F401
 from . import claude as _claude  # noqa: E402, F401
 from . import codex as _codex  # noqa: E402, F401
-from . import gemini as _gemini  # noqa: E402, F401
 from . import grok as _grok  # noqa: E402, F401

@@ -147,7 +147,7 @@ def test_run_accepts_provider_overrides(tmp_path, monkeypatch, _stub_run_precond
             "--developer",
             "grok",
             "--reviewer",
-            "gemini",
+            "antigravity",
             "--max-review-attempts",
             "5",
             "--timeout",
@@ -155,7 +155,7 @@ def test_run_accepts_provider_overrides(tmp_path, monkeypatch, _stub_run_precond
         ]
     )
     assert captured["developer"].name == "grok"
-    assert captured["reviewer"].name == "gemini"
+    assert captured["reviewer"].name == "antigravity"
     assert captured["max_review_attempts"] == 5
     assert captured["timeout"] == 60
 

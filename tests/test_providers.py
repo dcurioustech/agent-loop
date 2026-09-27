@@ -24,8 +24,8 @@ from agent_loop.providers.base import CapturedResult, Provider
 # ---------------------------------------------------------------------------
 
 
-def test_all_five_providers_are_registered():
-    assert known_provider_names() == ["antigravity", "claude", "codex", "gemini", "grok"]
+def test_all_four_providers_are_registered():
+    assert known_provider_names() == ["antigravity", "claude", "codex", "grok"]
 
 
 def test_get_provider_rejects_unknown_name():
@@ -44,7 +44,6 @@ def test_get_provider_rejects_unknown_name():
         ("claude", ["claude", "-p", "PROMPT", "--output-format", "text"]),
         ("codex", ["codex", "exec", "--full-auto", "PROMPT"]),
         ("grok", ["grok", "-p", "PROMPT"]),
-        ("gemini", ["gemini", "-p", "PROMPT"]),
         ("antigravity", ["agy", "-p", "PROMPT"]),
     ],
 )
@@ -54,7 +53,6 @@ def test_default_argv_is_safe_mode(monkeypatch, name, expected):
         "ALLOW_AUTO_MODE_CLAUDE",
         "ALLOW_AUTO_MODE_CODEX",
         "ALLOW_AUTO_MODE_GROK",
-        "ALLOW_AUTO_MODE_GEMINI",
         "ALLOW_AUTO_MODE_ANTIGRAVITY",
     ):
         monkeypatch.delenv(env, raising=False)
@@ -88,11 +86,6 @@ def test_default_argv_is_safe_mode(monkeypatch, name, expected):
             ["grok", "-p", "PROMPT", "--always-approve"],
         ),
         (
-            "gemini",
-            "ALLOW_AUTO_MODE_GEMINI",
-            ["gemini", "-p", "PROMPT", "--approval-mode", "yolo"],
-        ),
-        (
             "antigravity",
             "ALLOW_AUTO_MODE_ANTIGRAVITY",
             ["agy", "-p", "PROMPT", "--dangerously-skip-permissions"],
@@ -112,7 +105,6 @@ def test_auto_mode_argv_when_gate_set(monkeypatch, name, env_var, expected):
         ("claude", "ALLOW_AUTO_MODE_CLAUDE"),
         ("codex", "ALLOW_AUTO_MODE_CODEX"),
         ("grok", "ALLOW_AUTO_MODE_GROK"),
-        ("gemini", "ALLOW_AUTO_MODE_GEMINI"),
         ("antigravity", "ALLOW_AUTO_MODE_ANTIGRAVITY"),
     ],
 )
@@ -142,7 +134,6 @@ def test_auto_mode_env_is_strict_one(monkeypatch, name, env_var):
         ),
         ("codex", ["codex", "exec", "--full-auto", "-m", "M", "PROMPT"]),
         ("grok", ["grok", "-p", "PROMPT", "--model", "M"]),
-        ("gemini", ["gemini", "-p", "PROMPT", "-m", "M"]),
         ("antigravity", ["agy", "-p", "PROMPT", "--model", "M"]),
     ],
 )
@@ -151,7 +142,6 @@ def test_model_is_appended_with_provider_flag(monkeypatch, name, expected):
         "ALLOW_AUTO_MODE_CLAUDE",
         "ALLOW_AUTO_MODE_CODEX",
         "ALLOW_AUTO_MODE_GROK",
-        "ALLOW_AUTO_MODE_GEMINI",
         "ALLOW_AUTO_MODE_ANTIGRAVITY",
     ):
         monkeypatch.delenv(env, raising=False)
@@ -161,7 +151,7 @@ def test_model_is_appended_with_provider_flag(monkeypatch, name, expected):
     assert provider.build_argv("PROMPT") == expected
 
 
-@pytest.mark.parametrize("name", ["claude", "codex", "grok", "gemini"])
+@pytest.mark.parametrize("name", ["claude", "codex", "grok", "antigravity"])
 def test_no_model_flag_when_model_absent(name):
     # Both None and empty string mean "let the CLI pick its own default".
     for provider in (get_provider(name), get_provider(name, None), get_provider(name, "")):
@@ -202,7 +192,7 @@ def test_preflight_passes_when_binary_present(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["claude", "codex", "grok", "gemini", "antigravity"])
+@pytest.mark.parametrize("name", ["claude", "codex", "grok", "antigravity"])
 def test_prompt_with_quotes_and_spaces_stays_single_token(name):
     nasty = 'hello "world" with spaces; rm -rf /'
     argv = get_provider(name).build_argv(nasty)
