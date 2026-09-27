@@ -6,11 +6,18 @@ Originally extracted from a Flutter project's `run_loop.sh`. Project-agnostic: b
 
 ## Install
 
+The PyPI distribution is `agent-loop-tool`; the installed command is
+`agent-loop`. Until the first PyPI release, install from the repository
+(requires repository access):
+
 ```console
 pipx install git+https://github.com/dcurioustech/agent-loop.git
 # or
 uv tool install git+https://github.com/dcurioustech/agent-loop.git
 ```
+
+After the first PyPI release, use `pipx install agent-loop-tool` or
+`uv tool install agent-loop-tool`.
 
 Requires at least one of these CLIs on PATH, depending on the roles you pick:
 

@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-loop"
+name = "agent-loop-tool"
 version = "0.1.0"
-description = "Checkpoint-gated developer/reviewer loop across Claude Code, Codex, Grok, and Gemini CLIs."
+description = "Checkpoint-gated developer/reviewer loop across Claude Code, Codex, Grok, and Antigravity CLIs."
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "Dwaraka Ramana Turlapati" }]
