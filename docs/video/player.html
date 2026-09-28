@@ -1,0 +1,124 @@
+<!doctype html><html><head><meta charset="utf-8"><title>agent-loop demo</title>
+<style>
+:root{--bg:#0b0e14;--win:#0f1319;--bar:#1a1f29;--line:#262c38;--fg:#d6dde8;--dim:#5c6678;--mute:#8a94a6;--g:#4fd67a;--r:#ff6b6b;--y:#f0c050;--b:#6cb6ff;--p:#c9a0ff}
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:1280px;height:720px;overflow:hidden;background:radial-gradient(1200px 700px at 30% 20%,#141a26,#07090d);color:var(--fg);font-family:Inter,"Segoe UI",Helvetica,Arial,sans-serif}
+.term{position:absolute;left:36px;top:36px;width:860px;height:600px;background:var(--win);border:1px solid var(--line);border-radius:12px;box-shadow:0 30px 80px rgba(0,0,0,.55);overflow:hidden}
+.tbar{height:34px;background:var(--bar);display:flex;align-items:center;padding:0 14px;gap:8px;border-bottom:1px solid var(--line)}
+.dot{width:12px;height:12px;border-radius:50%}
+.tbar .t{flex:1;text-align:center;font:13px ui-monospace,Menlo,monospace;color:var(--mute);margin-right:52px}
+.screen{position:absolute;left:0;right:0;top:34px;bottom:0;padding:12px 16px;font:13.5px/19px "DejaVu Sans Mono",ui-monospace,Menlo,monospace;white-space:pre;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end}
+.l{overflow:hidden;text-overflow:ellipsis}
+.pr{color:var(--g)}.cmd{color:#fff}.cur{background:var(--fg);color:var(--win)}
+.ev{color:var(--dim)}.ev b{color:#7d6aa8;font-weight:400}
+.ok{color:var(--g)}.bad{color:var(--r)}.hd{color:var(--b);font-weight:700}.warn{color:var(--y)}.agent{color:#e8d8b0}
+.side{position:absolute;left:920px;top:36px;width:324px;display:flex;flex-direction:column;gap:16px}
+.card{background:rgba(20,25,34,.9);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card h4{font:600 12px ui-monospace,monospace;letter-spacing:.12em;color:var(--mute);text-transform:uppercase;margin-bottom:12px}
+.cp{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:15px}
+.cp:first-of-type{border-top:0}
+.cp small{display:block;color:var(--mute);font:12px ui-monospace,monospace;margin-top:2px}
+.pill{font:600 12px ui-monospace,monospace;padding:3px 10px;border-radius:99px;border:1px solid;transition:all .3s}
+.s-none{color:var(--dim);border-color:var(--line)}.s-pending{color:var(--mute);border-color:#3a4252}.s-built{color:var(--y);border-color:var(--y)}.s-approved{color:var(--g);border-color:var(--g);background:rgba(79,214,122,.08)}
+.role{font:11.5px ui-monospace,monospace;color:var(--mute);margin-top:10px;display:flex;gap:8px}
+.role span{white-space:nowrap;padding:3px 7px;border-radius:6px;border:1px solid var(--line)}
+.role .act.dev{color:#e0a060;border-color:#e0a060}.role .act.rev{color:#7ee0a0;border-color:#7ee0a0}
+.commits{font:12.5px/1.75 ui-monospace,monospace;min-height:190px}
+.commits div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.commits .h{color:var(--y)}
+.caption{position:absolute;left:36px;right:36px;bottom:22px;height:48px;display:flex;align-items:center;gap:14px}
+.caption .step{font:600 13px ui-monospace,monospace;color:var(--b);border:1px solid var(--b);border-radius:6px;padding:4px 8px}
+.caption .txt{font-size:21px;font-weight:600}
+.caption .fine{margin-left:auto;font:12px ui-monospace,monospace;color:var(--dim);text-align:right;line-height:1.4}
+.overlay{position:absolute;inset:0;background:#07090d;display:flex;flex-direction:column;justify-content:center;padding:0 110px;opacity:0}
+.overlay .k{font:600 15px ui-monospace,monospace;letter-spacing:.14em;color:var(--mute);text-transform:uppercase;margin-bottom:16px}
+.overlay .big{font-size:64px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.overlay .big span{color:var(--b)}
+.overlay .sub{font-size:24px;color:var(--mute);margin-top:18px;line-height:1.5}
+.overlay .m{font-family:ui-monospace,monospace;color:var(--fg)}
+</style></head><body>
+<div class="term"><div class="tbar"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div><div class="t" id="title">~/tipcalc — zsh</div></div><div class="screen" id="scr"></div></div>
+<div class="side">
+  <div class="card"><h4>plan_checkpoints.json</h4><div id="cps"></div><div class="role"><span id="rdev">claude · developer</span><span id="rrev">codex · reviewer</span></div></div>
+  <div class="card"><h4>git log --oneline</h4><div class="commits" id="commits"></div></div>
+</div>
+<div class="caption"><div class="step" id="stepn">1/9</div><div class="txt" id="cap"></div><div class="fine">real agent-loop run · agents are scripted<br>stand-ins for the claude / codex CLIs</div></div>
+<div class="overlay" id="intro"><div class="k">dcurioustech / agent-loop · live demo</div><div class="big">One agent builds.<br>Another <span>reviews</span>.</div><div class="sub">Watch <span class="m">agent-loop</span> take a feature from one sentence<br>to approved, committed checkpoints.</div></div>
+<div class="overlay" id="outro"><div class="k">that was agent-loop</div><div class="big">7 commits. 2 checkpoints.<br><span>1 caught bug.</span></div><div class="sub">The reviewer rejected a CLI that accepted negative amounts;<br>the developer fixed it; nothing merged without a human.<br><br><span class="m">pipx install git+https://github.com/dcurioustech/agent-loop.git</span></div></div>
+<script>
+const S = __SESSION__;
+const COLS = 98, ROWS = 28, INTRO = 4200, OUTRO = 6500;
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function style(t){ t=t.replace(/(\S) {6,}(\S)/,"$1  $2");
+  const s=t.length>COLS?t.slice(0,COLS-1)+'…':t;
+  if(t.startsWith('[agent-loop]')) return '<span class="ev"><b>[agent-loop]</b>'+esc(s.slice(12))+'</span>';
+  if(/^={5,}/.test(t)||/^  CHECKPOINT/.test(t)||t.startsWith('###')) return '<span class="hd">'+esc(s)+'</span>';
+  if(t.startsWith('>>')||t.startsWith('✓')||t.startsWith('OK ')||/ passed/.test(t)) return '<span class="ok">'+esc(s)+'</span>';
+  if(t.startsWith('✗')||t.startsWith('error:')||/error: amount/.test(t)) return '<span class="bad">'+esc(s)+'</span>';
+  if(t.startsWith('---')) return '<span class="warn">'+esc(s)+'</span>';
+  if(t.startsWith('$ ')) return '<span class="agent">'+esc(s)+'</span>';
+  return esc(s);
+}
+// Build timeline
+const tl=[]; let t=INTRO+400, step=0;
+const notes=[];
+S.forEach((st,i)=>{
+  if(st.note){ step++; notes.push({t, text:st.note, n:step}); }
+  const typeDur = st.cmd.length*38;
+  tl.push({t, kind:'cmd', text:st.cmd, dur:typeDur}); t+=typeDur+350;
+  st.out.forEach(([_,line])=>{
+    let d = line.startsWith('[agent-loop]') ? 55 : 150;
+    if(/APPROVED|✗|✓|revision|All checkpoints/.test(line)) d=900;
+    if(/^={5,}/.test(line)) d=60;
+    tl.push({t, kind:'out', text:line}); t+=d;
+  });
+  t+=st.pause*1000;
+});
+const TOTAL=t+OUTRO; window.TOTAL_MS=TOTAL;
+const nsteps=notes.length;
+function seek(ms){
+  // terminal
+  const lines=[]; let typing=null;
+  for(const e of tl){ if(e.t>ms) break;
+    if(e.kind==='cmd'){ const n=Math.min(e.text.length,Math.floor((ms-e.t)/38)); lines.push('<span class="pr">❯ </span><span class="cmd">'+esc(e.text.slice(0,n))+'</span>'); typing=lines.length-1; if(n<e.text.length) break; }
+    else { lines.push(style(e.text)); typing=null; }
+  }
+  const blink = Math.floor(ms/530)%2===0;
+  // prompt with cursor
+  const last = tl.filter(e=>e.t<=ms).pop();
+  if(typing!==null) lines[typing]+= blink?'<span class="cur"> </span>':' ';
+  else if(ms>INTRO && (()=>{const nx=tl.find(e=>e.t>ms); return !nx||nx.kind==='cmd';})()) { lines.push('<span class="pr">❯ </span>'+(blink?'<span class="cur"> </span>':'')); }
+  document.getElementById('scr').innerHTML=lines.slice(-ROWS).map(l=>'<div class="l">'+(l||' ')+'</div>').join('');
+  // derive tracker state from real output lines seen so far
+  const seen=tl.filter(e=>e.t<=ms&&e.kind==='out').map(e=>e.text);
+  const cps={phase0:{n:'Core tip math',s:'none',a:0},phase1:{n:'Command-line interface',s:'none',a:0}};
+  const commits=[['2a3e5c5','initial commit']]; let actor=null;
+  for(const l of seen){
+    if(/wrote plan_checkpoints/.test(l)){cps.phase0.s=cps.phase1.s='pending';}
+    let m=l.match(/COMMIT_STATEMENT .*"commit_hash": "(\w{7})\w*".*"message": "([^"]+)"/); if(m){commits.push([m[1],m[2]]); const c=m[2].match(/^(phase\d): (built|revision)/); if(c){cps[c[1]].s='built';}}
+    m=l.match(/^>> (phase\d) APPROVED/); if(m) cps[m[1]].s='approved';
+    m=l.match(/review attempt (\d)\/\d/); if(m){const p=l.match(/(phase\d)/)[1]; cps[p].a=+m[1];}
+    m=l.match(/AGENT_TRACE \{"action": "start".*"role": "(\w+)"/); if(m) actor=m[1];
+    m=l.match(/AGENT_TRACE \{"action": "finish"/); if(m) actor=null;
+    if(/^\s+phase\d\s+pending/.test(l)&&cps.phase0.s==='none'){}
+  }
+  // plan commit from git step
+  const planDone=tl.some(e=>e.t<=ms&&e.kind==='cmd'&&e.text.startsWith('git add plan'));
+  if(planDone) commits.splice(1,0,['1caffae','plan: tip calculator']);
+  document.getElementById('cps').innerHTML=Object.entries(cps).map(([id,c])=>`<div class="cp"><div>${id}<small>${c.n}${c.a?' · attempt '+c.a:''}</small></div><span class="pill s-${c.s}">${c.s==='none'?'—':c.s}</span></div>`).join('');
+  document.getElementById('rdev').className=actor==='developer'?'act dev':'';
+  document.getElementById('rrev').className=actor==='reviewer'?'act rev':'';
+  document.getElementById('commits').innerHTML=commits.slice().reverse().map(([h,m])=>`<div><span class="h">${h}</span> ${esc(m)}</div>`).join('');
+  document.getElementById('title').textContent=planDone&&seen.some(l=>l.startsWith('### agent-loop'))?'~/tipcalc (feature/tip-calculator) — zsh':'~/tipcalc (main) — zsh';
+  // caption
+  const cur=notes.filter(n=>n.t<=ms).pop();
+  document.getElementById('cap').textContent=cur?cur.text:'';
+  document.getElementById('stepn').textContent=cur?`${cur.n}/${nsteps}`:'';
+  document.getElementById('stepn').style.visibility=cur?'visible':'hidden';
+  // overlays
+  const fade=(a,b)=>Math.max(0,Math.min(1,a/b));
+  document.getElementById('intro').style.opacity= ms<INTRO-600?1:1-fade(ms-(INTRO-600),600);
+  document.getElementById('outro').style.opacity= fade(ms-(TOTAL-OUTRO),700);
+}
+window.seek=seek; seek(0);
+</script></body></html>

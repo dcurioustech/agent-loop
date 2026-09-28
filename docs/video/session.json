@@ -1,0 +1,520 @@
+[
+ {
+  "cmd": "agent-loop init \"Add a tip calculator with a CLI\" --branch feature/tip-calculator",
+  "out": [
+   [
+    0.11,
+    "wrote plan_checkpoints.json (branch=feature/tip-calculator, plan_file=docs/implementation_plan.md, 2 checkpoints)"
+   ]
+  ],
+  "rc": 0,
+  "note": "Describe the feature \u2014 a provider turns it into checkpoints",
+  "pause": 1.2
+ },
+ {
+  "cmd": "agent-loop validate",
+  "out": [
+   [
+    0.06,
+    "OK  plan_checkpoints.json (2 checkpoints, branch=feature/tip-calculator)"
+   ],
+   [
+    0.06,
+    "  phase0     pending   Core tip math"
+   ],
+   [
+    0.06,
+    "  phase1     pending   Command-line interface"
+   ]
+  ],
+  "rc": 0,
+  "note": null,
+  "pause": 0.6
+ },
+ {
+  "cmd": "agent-loop status",
+  "out": [
+   [
+    0.09,
+    "branch=feature/tip-calculator  plan=docs/implementation_plan.md  state=plan_checkpoints.json"
+   ],
+   [
+    0.09,
+    "  phase0     pending   attempts=0  Core tip math"
+   ],
+   [
+    0.09,
+    "  phase1     pending   attempts=0  Command-line interface"
+   ]
+  ],
+  "rc": 0,
+  "note": "Two checkpoints, both pending",
+  "pause": 1.2
+ },
+ {
+  "cmd": "agent-loop run",
+  "out": [
+   [
+    0.05,
+    "error: These providers are assigned to a role that writes files, but their"
+   ],
+   [
+    0.05,
+    "write-mode env gate is not set:"
+   ],
+   [
+    0.05,
+    ""
+   ],
+   [
+    0.05,
+    "  claude    set ALLOW_AUTO_MODE_CLAUDE=1"
+   ],
+   [
+    0.05,
+    "  codex     set ALLOW_AUTO_MODE_CODEX=1"
+   ],
+   [
+    0.05,
+    ""
+   ],
+   [
+    0.05,
+    "Unattended runs would otherwise block on a permission prompt."
+   ],
+   [
+    0.05,
+    "Re-run with the missing env vars exported."
+   ]
+  ],
+  "rc": 2,
+  "note": "Guardrail: agents may only write files if you opt in",
+  "pause": 1.8
+ },
+ {
+  "cmd": "export ALLOW_AUTO_MODE_CLAUDE=1 ALLOW_AUTO_MODE_CODEX=1",
+  "out": [],
+  "rc": 0,
+  "note": null,
+  "pause": 0.4
+ },
+ {
+  "cmd": "git add plan_checkpoints.json && git commit -qm 'plan: tip calculator'",
+  "out": [],
+  "rc": 0,
+  "note": null,
+  "pause": 0.6
+ },
+ {
+  "cmd": "agent-loop run --audit-level redacted",
+  "out": [
+   [
+    0.06,
+    "### agent-loop | developer=claude reviewer=codex log=/tmp/tipcalc/logs/loop_20260928_112636.log audit-level=redacted"
+   ],
+   [
+    0.07,
+    ""
+   ],
+   [
+    0.08,
+    "============================================================"
+   ],
+   [
+    0.08,
+    "  CHECKPOINT phase0 \u2014 Core tip math"
+   ],
+   [
+    0.08,
+    "============================================================"
+   ],
+   [
+    0.08,
+    "[agent-loop] AGENT_TRACE {\"action\": \"start\", \"checkpoint\": \"phase0\", \"event\": \"AGENT_TRACE\", \"provider\": \"claude\", \"role\": \"developer\", \"run_kind\": \"build\", \"timeout_seconds\": 1800}"
+   ],
+   [
+    0.08,
+    "[agent-loop] AGENT_TRACE {\"action\": \"prompt\", \"checkpoint\": \"phase0\", \"event\": \"AGENT_TRACE\", \"prompt\": \"You are executing the agreed plan in docs/implementation_plan.md.\\nWork ONLY on checkpoint 'phase0' (Core tip math). Do not start any later phase.\\n\\nScope:\\ntipcalc/core.py with tip() and split()\\n\\nThis phase is complete only when ALL of these exit criteria are objectively met:\\n- tip(100, 15) == 15.0\\n- split() rounds each share up to the cent\\n- unit tests pass\\n\\nWhen finished, in plan_checkpoints.json set checkpoint 'phase0' status to 'built' and\\nwrite a concise summary (files touched, tests added, how each exit criterion is\\nmet) into its 'review_notes' field.\\n\", \"provider\": \"claude\", \"role\": \"developer\", \"run_kind\": \"build\"}"
+   ],
+   [
+    0.12,
+    "Reading plan: phase0 \u2014 Core tip math"
+   ],
+   [
+    0.37,
+    "  wrote tipcalc/core.py  (tip, split)"
+   ],
+   [
+    0.62,
+    "  wrote tests/test_core.py (3 tests)"
+   ],
+   [
+    0.87,
+    "$ python -m pytest -q"
+   ],
+   [
+    1.22,
+    "  ...                                                                                          [100%]"
+   ],
+   [
+    1.34,
+    "  3 passed in 0.01s"
+   ],
+   [
+    1.5,
+    "[agent-loop] AGENT_TRACE {\"action\": \"finish\", \"checkpoint\": \"phase0\", \"event\": \"AGENT_TRACE\", \"outcome\": \"completed\", \"provider\": \"claude\", \"return_code\": 0, \"role\": \"developer\", \"run_kind\": \"build\"}"
+   ],
+   [
+    1.62,
+    "[agent-loop] COMMIT_STATEMENT {\"commit_hash\": \"222b8516aa9b3153b6f2dce6db01d4b2b58443ab\", \"event\": \"COMMIT_STATEMENT\", \"message\": \"phase0: built\", \"status\": \"committed\"}"
+   ],
+   [
+    1.62,
+    "--- phase0 review attempt 1/3 ---"
+   ],
+   [
+    1.62,
+    "[agent-loop] AGENT_TRACE {\"action\": \"start\", \"checkpoint\": \"phase0\", \"event\": \"AGENT_TRACE\", \"provider\": \"codex\", \"role\": \"reviewer\", \"run_kind\": \"review\", \"timeout_seconds\": 1800}"
+   ],
+   [
+    1.62,
+    "[agent-loop] AGENT_TRACE {\"action\": \"prompt\", \"checkpoint\": \"phase0\", \"event\": \"AGENT_TRACE\", \"prompt\": \"Review ONLY checkpoint 'phase0' (Core tip math) of the plan in docs/implementation_plan.md.\\nRead plan_checkpoints.json for the developer's 'review_notes', then independently\\nverify the work in the repo.\\n\\nScope for this checkpoint:\\ntipcalc/core.py with tip() and split()\\n\\nApprove ONLY if every one of these exit criteria is genuinely met:\\n- tip(100, 15) == 15.0\\n- split() rounds each share up to the cent\\n- unit tests pass\\n\\nIf all pass: set checkpoint 'phase0' status to 'approved' in plan_checkpoints.json.\\nIf a criterion genuinely fails: set status to 'built' and write SPECIFIC,\\nactionable, criterion-referenced fixes into 'review_notes'. Do not nitpick style\\nor request scope beyond this phase.\\n\\nDo not merge to main/master. All final merging must wait for explicit human approval.\\n\", \"provider\": \"codex\", \"role\": \"reviewer\", \"run_kind\": \"review\"}"
+   ],
+   [
+    1.65,
+    "Reviewing phase0 \u2014 Core tip math"
+   ],
+   [
+    1.9,
+    "$ python -m pytest -q"
+   ],
+   [
+    2.21,
+    "  ...                                                                                          [100%]"
+   ],
+   [
+    2.33,
+    "  3 passed in 0.01s"
+   ],
+   [
+    2.45,
+    "\u2713 all exit criteria met \u2014 approving phase0"
+   ],
+   [
+    2.74,
+    "[agent-loop] AGENT_TRACE {\"action\": \"finish\", \"checkpoint\": \"phase0\", \"event\": \"AGENT_TRACE\", \"outcome\": \"completed\", \"provider\": \"codex\", \"return_code\": 0, \"role\": \"reviewer\", \"run_kind\": \"review\"}"
+   ],
+   [
+    2.74,
+    "[agent-loop] REVIEW_COMMENT {\"checkpoint\": \"phase0\", \"comment\": \"core.py: tip(), split() w/ ceil to cent; 3 tests.\", \"event\": \"REVIEW_COMMENT\", \"review_attempt\": 1, \"status\": \"approved\"}"
+   ],
+   [
+    2.74,
+    ">> phase0 APPROVED"
+   ],
+   [
+    2.74,
+    "[agent-loop] APPROVAL_COMMENT {\"approval_status\": \"approved\", \"checkpoint\": \"phase0\", \"comment\": \"core.py: tip(), split() w/ ceil to cent; 3 tests.\", \"event\": \"APPROVAL_COMMENT\", \"review_attempt\": 1, \"source\": \"reviewer\"}"
+   ],
+   [
+    2.83,
+    "[agent-loop] COMMIT_STATEMENT {\"commit_hash\": \"4e2a6e3205310f7a68946d750ed38c10c671bf74\", \"event\": \"COMMIT_STATEMENT\", \"message\": \"phase0: approved\", \"status\": \"committed\"}"
+   ],
+   [
+    2.83,
+    ""
+   ],
+   [
+    2.83,
+    "============================================================"
+   ],
+   [
+    2.83,
+    "  CHECKPOINT phase1 \u2014 Command-line interface"
+   ],
+   [
+    2.83,
+    "============================================================"
+   ],
+   [
+    2.83,
+    "[agent-loop] AGENT_TRACE {\"action\": \"start\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"provider\": \"claude\", \"role\": \"developer\", \"run_kind\": \"build\", \"timeout_seconds\": 1800}"
+   ],
+   [
+    2.83,
+    "[agent-loop] AGENT_TRACE {\"action\": \"prompt\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"prompt\": \"You are executing the agreed plan in docs/implementation_plan.md.\\nWork ONLY on checkpoint 'phase1' (Command-line interface). Do not start any later phase.\\n\\nScope:\\npython -m tipcalc AMOUNT --pct --people\\n\\nThis phase is complete only when ALL of these exit criteria are objectively met:\\n- CLI prints tip, total and per-person share\\n- rejects negative amounts with exit code 2\\n\\nWhen finished, in plan_checkpoints.json set checkpoint 'phase1' status to 'built' and\\nwrite a concise summary (files touched, tests added, how each exit criterion is\\nmet) into its 'review_notes' field.\\n\", \"provider\": \"claude\", \"role\": \"developer\", \"run_kind\": \"build\"}"
+   ],
+   [
+    2.86,
+    "Reading plan: phase1 \u2014 Command-line interface"
+   ],
+   [
+    3.11,
+    "  wrote tipcalc/__main__.py (argparse CLI)"
+   ],
+   [
+    3.36,
+    "$ python -m tipcalc 84.50 --pct 18 --people 3"
+   ],
+   [
+    3.51,
+    "  tip 15.21 | total 99.71 | each 33.24"
+   ],
+   [
+    3.65,
+    "[agent-loop] AGENT_TRACE {\"action\": \"finish\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"outcome\": \"completed\", \"provider\": \"claude\", \"return_code\": 0, \"role\": \"developer\", \"run_kind\": \"build\"}"
+   ],
+   [
+    3.74,
+    "[agent-loop] COMMIT_STATEMENT {\"commit_hash\": \"9c3576c07a3dd472379ea167f385564eac4bc374\", \"event\": \"COMMIT_STATEMENT\", \"message\": \"phase1: built\", \"status\": \"committed\"}"
+   ],
+   [
+    3.74,
+    "--- phase1 review attempt 1/3 ---"
+   ],
+   [
+    3.74,
+    "[agent-loop] AGENT_TRACE {\"action\": \"start\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"provider\": \"codex\", \"role\": \"reviewer\", \"run_kind\": \"review\", \"timeout_seconds\": 1800}"
+   ],
+   [
+    3.75,
+    "[agent-loop] AGENT_TRACE {\"action\": \"prompt\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"prompt\": \"Review ONLY checkpoint 'phase1' (Command-line interface) of the plan in docs/implementation_plan.md.\\nRead plan_checkpoints.json for the developer's 'review_notes', then independently\\nverify the work in the repo.\\n\\nScope for this checkpoint:\\npython -m tipcalc AMOUNT --pct --people\\n\\nApprove ONLY if every one of these exit criteria is genuinely met:\\n- CLI prints tip, total and per-person share\\n- rejects negative amounts with exit code 2\\n\\nIf all pass: set checkpoint 'phase1' status to 'approved' in plan_checkpoints.json.\\nIf a criterion genuinely fails: set status to 'built' and write SPECIFIC,\\nactionable, criterion-referenced fixes into 'review_notes'. Do not nitpick style\\nor request scope beyond this phase.\\n\\nDo not merge to main/master. All final merging must wait for explicit human approval.\\n\", \"provider\": \"codex\", \"role\": \"reviewer\", \"run_kind\": \"review\"}"
+   ],
+   [
+    3.78,
+    "Reviewing phase1 \u2014 Command-line interface"
+   ],
+   [
+    4.03,
+    "$ python -m pytest -q"
+   ],
+   [
+    4.36,
+    "  ...                                                                                          [100%]"
+   ],
+   [
+    4.48,
+    "  3 passed in 0.01s"
+   ],
+   [
+    4.6,
+    "$ python -m tipcalc -- -5"
+   ],
+   [
+    4.73,
+    "  tip -0.75 | total -5.75 | each -5.75"
+   ],
+   [
+    4.85,
+    "\u2717 exit criterion 2 not met: negative amount accepted (exit 0)"
+   ],
+   [
+    5.12,
+    "[agent-loop] AGENT_TRACE {\"action\": \"finish\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"outcome\": \"completed\", \"provider\": \"codex\", \"return_code\": 0, \"role\": \"reviewer\", \"run_kind\": \"review\"}"
+   ],
+   [
+    5.12,
+    "[agent-loop] REVIEW_COMMENT {\"checkpoint\": \"phase1\", \"comment\": \"Criterion 2 fails: `python -m tipcalc -- -5` exits 0; must reject with exit code 2.\", \"event\": \"REVIEW_COMMENT\", \"review_attempt\": 1, \"status\": \"built\"}"
+   ],
+   [
+    5.12,
+    "[agent-loop] AGENT_TRACE {\"action\": \"start\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"provider\": \"claude\", \"role\": \"developer\", \"run_kind\": \"revision\", \"timeout_seconds\": 1800}"
+   ],
+   [
+    5.12,
+    "[agent-loop] AGENT_TRACE {\"action\": \"prompt\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"prompt\": \"The reviewer did NOT approve checkpoint 'phase1' of the plan.\\nApply ONLY these requested fixes \\u2014 do not add scope or pull work from later phases:\\n\\nCriterion 2 fails: `python -m tipcalc -- -5` exits 0; must reject with exit code 2.\\n\\nWhen done, in plan_checkpoints.json set checkpoint 'phase1' status back to 'built' and\\nupdate 'review_notes' describing exactly what you changed.\\n\\nDo not merge to main/master. All final merging must wait for explicit human approval.\\n\", \"provider\": \"claude\", \"role\": \"developer\", \"run_kind\": \"revision\"}"
+   ],
+   [
+    5.16,
+    "Applying reviewer fixes for phase1\u2026"
+   ],
+   [
+    5.41,
+    "  edited tipcalc/__main__.py: validate amount >= 0, exit 2"
+   ],
+   [
+    5.66,
+    "  added tests/test_cli.py::test_negative_amount"
+   ],
+   [
+    5.91,
+    "$ python -m pytest -q"
+   ],
+   [
+    6.31,
+    "  ....                                                                                         [100%]"
+   ],
+   [
+    6.44,
+    "  4 passed in 0.07s"
+   ],
+   [
+    6.59,
+    "[agent-loop] AGENT_TRACE {\"action\": \"finish\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"outcome\": \"completed\", \"provider\": \"claude\", \"return_code\": 0, \"role\": \"developer\", \"run_kind\": \"revision\"}"
+   ],
+   [
+    6.7,
+    "[agent-loop] COMMIT_STATEMENT {\"commit_hash\": \"6b4f79362031dd2ade0d7cccce4985cfc03543a0\", \"event\": \"COMMIT_STATEMENT\", \"message\": \"phase1: revision 1\", \"status\": \"committed\"}"
+   ],
+   [
+    6.7,
+    "--- phase1 review attempt 2/3 ---"
+   ],
+   [
+    6.7,
+    "[agent-loop] AGENT_TRACE {\"action\": \"start\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"provider\": \"codex\", \"role\": \"reviewer\", \"run_kind\": \"review\", \"timeout_seconds\": 1800}"
+   ],
+   [
+    6.7,
+    "[agent-loop] AGENT_TRACE {\"action\": \"prompt\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"prompt\": \"Review ONLY checkpoint 'phase1' (Command-line interface) of the plan in docs/implementation_plan.md.\\nRead plan_checkpoints.json for the developer's 'review_notes', then independently\\nverify the work in the repo.\\n\\nScope for this checkpoint:\\npython -m tipcalc AMOUNT --pct --people\\n\\nApprove ONLY if every one of these exit criteria is genuinely met:\\n- CLI prints tip, total and per-person share\\n- rejects negative amounts with exit code 2\\n\\nIf all pass: set checkpoint 'phase1' status to 'approved' in plan_checkpoints.json.\\nIf a criterion genuinely fails: set status to 'built' and write SPECIFIC,\\nactionable, criterion-referenced fixes into 'review_notes'. Do not nitpick style\\nor request scope beyond this phase.\\n\\nDo not merge to main/master. All final merging must wait for explicit human approval.\\n\", \"provider\": \"codex\", \"role\": \"reviewer\", \"run_kind\": \"review\"}"
+   ],
+   [
+    6.74,
+    "Reviewing phase1 \u2014 Command-line interface"
+   ],
+   [
+    6.99,
+    "$ python -m pytest -q"
+   ],
+   [
+    7.35,
+    "  ....                                                                                         [100%]"
+   ],
+   [
+    7.47,
+    "  4 passed in 0.06s"
+   ],
+   [
+    7.59,
+    "$ python -m tipcalc -- -5"
+   ],
+   [
+    7.72,
+    "  usage: tipcalc [-h] [--pct PCT] [--people PEOPLE] amount"
+   ],
+   [
+    7.84,
+    "  tipcalc: error: amount must be >= 0"
+   ],
+   [
+    7.96,
+    "\u2713 all exit criteria met \u2014 approving phase1"
+   ],
+   [
+    8.22,
+    "[agent-loop] AGENT_TRACE {\"action\": \"finish\", \"checkpoint\": \"phase1\", \"event\": \"AGENT_TRACE\", \"outcome\": \"completed\", \"provider\": \"codex\", \"return_code\": 0, \"role\": \"reviewer\", \"run_kind\": \"review\"}"
+   ],
+   [
+    8.22,
+    "[agent-loop] REVIEW_COMMENT {\"checkpoint\": \"phase1\", \"comment\": \"Added negative-amount guard (exit 2) + test.\", \"event\": \"REVIEW_COMMENT\", \"review_attempt\": 2, \"status\": \"approved\"}"
+   ],
+   [
+    8.22,
+    ">> phase1 APPROVED"
+   ],
+   [
+    8.22,
+    "[agent-loop] APPROVAL_COMMENT {\"approval_status\": \"approved\", \"checkpoint\": \"phase1\", \"comment\": \"Added negative-amount guard (exit 2) + test.\", \"event\": \"APPROVAL_COMMENT\", \"review_attempt\": 2, \"source\": \"reviewer\"}"
+   ],
+   [
+    8.33,
+    "[agent-loop] COMMIT_STATEMENT {\"commit_hash\": \"91cd5cf0c64a45c41fcfdeabbc7ffd795b931b4d\", \"event\": \"COMMIT_STATEMENT\", \"message\": \"phase1: approved\", \"status\": \"committed\"}"
+   ],
+   [
+    8.33,
+    ""
+   ],
+   [
+    8.33,
+    "### All checkpoints approved on branch feature/tip-calculator."
+   ],
+   [
+    8.33,
+    "### No merge was performed. Review the branch and merge to main/master only after explicit human approval."
+   ],
+   [
+    8.33,
+    "[agent-loop] RUN_OUTCOME {\"branch\": \"feature/tip-calculator\", \"event\": \"RUN_OUTCOME\", \"outcome\": \"completed\"}"
+   ],
+   [
+    8.43,
+    "[agent-loop] COMMIT_STATEMENT {\"commit_hash\": \"1d5644e7d4349fec8709f13c3bdd3ca2108b1fc1\", \"event\": \"COMMIT_STATEMENT\", \"message\": \"audit: completed run\", \"status\": \"committed\"}"
+   ]
+  ],
+  "rc": 0,
+  "note": "Switches to the plan branch \u00b7 claude builds \u00b7 codex reviews",
+  "pause": 2
+ },
+ {
+  "cmd": "agent-loop status",
+  "out": [
+   [
+    0.07,
+    "branch=feature/tip-calculator  plan=docs/implementation_plan.md  state=plan_checkpoints.json"
+   ],
+   [
+    0.07,
+    "  phase0     approved  attempts=1  Core tip math"
+   ],
+   [
+    0.07,
+    "  phase1     approved  attempts=2  Command-line interface"
+   ]
+  ],
+  "rc": 0,
+  "note": "Both checkpoints approved",
+  "pause": 1.2
+ },
+ {
+  "cmd": "git log --oneline",
+  "out": [
+   [
+    0.0,
+    "1d5644e audit: completed run"
+   ],
+   [
+    0.0,
+    "91cd5cf phase1: approved"
+   ],
+   [
+    0.0,
+    "6b4f793 phase1: revision 1"
+   ],
+   [
+    0.0,
+    "9c3576c phase1: built"
+   ],
+   [
+    0.0,
+    "4e2a6e3 phase0: approved"
+   ],
+   [
+    0.0,
+    "222b851 phase0: built"
+   ],
+   [
+    0.0,
+    "1caffae plan: tip calculator"
+   ],
+   [
+    0.0,
+    "2a3e5c5 initial commit"
+   ]
+  ],
+  "rc": 0,
+  "note": "Every build, revision and approval is a commit",
+  "pause": 2.5
+ },
+ {
+  "cmd": "grep RUN_OUTCOME logs/*.log",
+  "out": [
+   [
+    0.0,
+    "[agent-loop] RUN_OUTCOME {\"branch\": \"feature/tip-calculator\", \"event\": \"RUN_OUTCOME\", \"outcome\": \"completed\"}"
+   ]
+  ],
+  "rc": 0,
+  "note": "The run log is committed as an audit trail",
+  "pause": 2.5
+ }
+]
