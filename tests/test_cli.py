@@ -167,7 +167,7 @@ def test_run_defaults_audit_level_to_off(tmp_path, monkeypatch, _stub_run_precon
     monkeypatch.setattr(cli, "run_loop", lambda **kw: captured.update(kw))
     rc = cli.main(["run", "--state", str(p)])
     assert rc == 0
-    assert captured["audit_level"] == "off"
+    assert captured["audit_level"] == "redacted"
 
 
 def test_run_audit_level_flag_overrides_default(tmp_path, monkeypatch, _stub_run_preconditions):

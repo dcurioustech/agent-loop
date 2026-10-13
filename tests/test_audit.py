@@ -150,7 +150,7 @@ def test_validate_rejects_unknown_level():
 
 def test_default_audit_level_is_off_with_no_env(monkeypatch):
     monkeypatch.delenv("AGENT_LOOP_AUDIT_LEVEL", raising=False)
-    assert audit.default_audit_level() == "off"
+    assert audit.default_audit_level() == "redacted"
 
 
 def test_default_audit_level_honors_env_override(monkeypatch):

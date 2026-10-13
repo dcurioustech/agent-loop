@@ -25,7 +25,7 @@ import os
 import re
 
 AUDIT_LEVELS = ("full", "redacted", "off")
-DEFAULT_AUDIT_LEVEL = "off"
+DEFAULT_AUDIT_LEVEL = "redacted"
 
 _ENV_VAR = "AGENT_LOOP_AUDIT_LEVEL"
 
