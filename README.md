@@ -1,5 +1,7 @@
 # agent-loop
 
+[![Total downloads](https://img.shields.io/pepy/dt/agent-loop-tool?label=Total%20downloads)](https://pepy.tech/projects/agent-loop-tool)
+
 A checkpoint-gated developer/reviewer loop. One coding-agent CLI plays **developer** and writes the code for the current checkpoint; another plays **reviewer** and approves or sends it back. The loop commits per checkpoint, refuses to run on `main`/`master`, and halts after a configurable number of failed review attempts.
 
 Originally extracted from a Flutter project's `run_loop.sh`. Project-agnostic: build / test / lint commands are declared per project in `plan_checkpoints.json`.
