@@ -6,10 +6,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from . import audit, plan_init, safety
+from . import audit, errors, plan_init, safety
 from .orchestrator import LoopHalted, run_loop
 from .providers import get_provider, known_provider_names
 from .providers.base import ProviderError
+from .git_ops import GitError
 from .state import PROTECTED_BRANCHES, InvalidPlanState, load_state
 
 DEFAULT_STATE = Path("plan_checkpoints.json")
@@ -153,7 +154,7 @@ def _cmd_validate(args) -> int:
     try:
         state = load_state(args.state)
     except InvalidPlanState as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     print(f"OK  {args.state} ({len(state.checkpoints)} checkpoints, branch={state.branch})")
@@ -166,7 +167,7 @@ def _cmd_status(args) -> int:
     try:
         state = load_state(args.state)
     except InvalidPlanState as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     print(f"branch={state.branch}  plan={state.plan_file}  state={args.state}")
@@ -180,7 +181,7 @@ def _cmd_run(args) -> int:
     try:
         state = load_state(args.state)
     except InvalidPlanState as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     # Precedence per role: CLI flag > plan 'models.<role>' > the CLI's default.
@@ -191,7 +192,7 @@ def _cmd_run(args) -> int:
         dev = get_provider(args.developer, dev_model)
         rev = get_provider(args.reviewer, rev_model)
     except ProviderError as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     try:
@@ -199,18 +200,22 @@ def _cmd_run(args) -> int:
         rev.preflight()
         safety.require_auto_mode_gates([dev, rev])
     except (ProviderError, safety.AutoModeGateError) as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     try:
         audit_level = args.audit_level or audit.default_audit_level()
     except audit.InvalidAuditLevel as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     log_dir = args.log_dir or safety.default_log_dir()
-    log_path = safety.open_log_file(log_dir)
-    safety.tee_stdout_to(log_path)
+    try:
+        log_path = safety.open_log_file(log_dir)
+        safety.tee_stdout_to(log_path)
+    except OSError as e:
+        errors.report(e, context=f"unable to create run log in {log_dir}")
+        return 2
     def _role(p) -> str:
         return f"{p.name}({p.model})" if p.model else p.name
 
@@ -230,14 +235,14 @@ def _cmd_run(args) -> int:
                 log_dir=log_dir,
                 audit_level=audit_level,
             )
-    except safety.LockHeld as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
     except LoopHalted as e:
-        print(f"halted: {e}", file=sys.stderr)
+        errors.report(e)
         return 1
-    except InvalidPlanState as e:
-        print(f"error: {e}", file=sys.stderr)
+    except (safety.LockHeld, InvalidPlanState, GitError, ProviderError) as e:
+        errors.report(e)
+        return 2
+    except OSError as e:
+        errors.report(e, context="the loop stopped")
         return 2
     return 0
 
@@ -250,31 +255,40 @@ def _cmd_init(args) -> int:
     have_file = args.feature_file is not None
 
     if have_text and have_file:
-        print(
-            "error: provide a feature description or --feature-file, not both",
-            file=sys.stderr,
+        return errors.fail(
+            "provide a feature description or --feature-file, not both",
+            'Use either: agent-loop init "Describe your feature"',
+            "or:         agent-loop init --feature-file docs/feature.md",
         )
-        return 2
     if not have_text and not have_file:
-        print(
-            "error: provide a feature description or --feature-file",
-            file=sys.stderr,
+        return errors.fail(
+            "provide a feature description or --feature-file",
+            'Example: agent-loop init "Add a dark-mode toggle to settings"',
         )
-        return 2
 
     feature_text = (args.feature or "").strip()
     if have_text and not feature_text:
-        print("error: feature description is empty", file=sys.stderr)
-        return 2
+        return errors.fail(
+            "feature description is empty",
+            "Describe what you want built in a sentence or two.",
+        )
 
     if have_file:
         if not args.feature_file.is_file():
-            print(f"error: feature file not found: {args.feature_file}", file=sys.stderr)
+            return errors.fail(
+                f"feature file not found: {args.feature_file}",
+                "Check the path (it is relative to the current directory).",
+            )
+        try:
+            feature_text = args.feature_file.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError) as e:
+            errors.report(e, context=f"unable to read feature file {args.feature_file}")
             return 2
-        feature_text = args.feature_file.read_text().strip()
         if not feature_text:
-            print(f"error: feature file is empty: {args.feature_file}", file=sys.stderr)
-            return 2
+            return errors.fail(
+                f"feature file is empty: {args.feature_file}",
+                "Add a description of the feature to the file and retry.",
+            )
         slug_source = args.feature_file.stem
         default_plan_file = str(args.feature_file)
     else:
@@ -285,21 +299,23 @@ def _cmd_init(args) -> int:
     plan_file = args.plan_file or default_plan_file
 
     if branch in PROTECTED_BRANCHES:
-        print(f"error: refusing protected target branch: {branch}", file=sys.stderr)
-        return 2
+        return errors.fail(
+            f"refusing protected target branch: {branch}",
+            "The loop never works directly on main/master; pass a feature branch "
+            "with --branch, e.g. --branch feature/my-change.",
+        )
 
     if args.state.exists() and not args.force:
-        print(
-            f"error: {args.state} already exists; use --force to overwrite",
-            file=sys.stderr,
+        return errors.fail(
+            f"{args.state} already exists; use --force to overwrite",
+            "Or write the new plan elsewhere with --state PATH.",
         )
-        return 2
 
     try:
         provider = get_provider(args.provider, args.model)
         provider.preflight()
     except ProviderError as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     try:
@@ -312,20 +328,19 @@ def _cmd_init(args) -> int:
         plan_init.PlanOutputParseError,
         InvalidPlanState,
     ) as e:
-        print(f"error: {e}", file=sys.stderr)
+        errors.report(e)
         return 2
 
     try:
         plan_init.write_generated_payload(args.state, payload, force=args.force)
     except plan_init.StateFileExistsError:
         # Only reachable if the file appeared after the check above.
-        print(
-            f"error: {args.state} already exists; use --force to overwrite",
-            file=sys.stderr,
+        return errors.fail(
+            f"{args.state} already exists; use --force to overwrite",
+            "Or write the new plan elsewhere with --state PATH.",
         )
-        return 2
     except OSError as e:
-        print(f"error: unable to write {args.state}: {e}", file=sys.stderr)
+        errors.report(e, context=f"unable to write {args.state}")
         return 2
 
     print(
@@ -335,19 +350,32 @@ def _cmd_init(args) -> int:
     return 0
 
 
+_COMMANDS = {
+    "run": _cmd_run,
+    "validate": _cmd_validate,
+    "status": _cmd_status,
+    "init": _cmd_init,
+}
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.cmd == "run":
-        return _cmd_run(args)
-    if args.cmd == "validate":
-        return _cmd_validate(args)
-    if args.cmd == "status":
-        return _cmd_status(args)
-    if args.cmd == "init":
-        return _cmd_init(args)
-    parser.print_help(sys.stderr)
-    raise SystemExit(2)
+    handler = _COMMANDS.get(args.cmd)
+    if handler is None:
+        parser.print_help(sys.stderr)
+        raise SystemExit(2)
+    # Last line of defence: whatever slips past the per-command handling is
+    # still reported as a one-line message with a hint, never a traceback
+    # (unless AGENT_LOOP_DEBUG=1 asks for one).
+    try:
+        return handler(args)
+    except KeyboardInterrupt as e:
+        errors.report(e)
+        return errors.EXIT_INTERRUPTED
+    except Exception as e:  # noqa: BLE001 - deliberately catch-all for the CLI
+        errors.report(e)
+        return 2
 
 
 if __name__ == "__main__":  # pragma: no cover

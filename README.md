@@ -126,6 +126,21 @@ At every level, agents still receive the real, unredacted prompt — `--audit-le
 
 The `--log-dir` worktree exemption above only ever tolerates changes to log *files*; it has no bearing on what those files contain — that's entirely `--audit-level`'s job.
 
+## Errors and troubleshooting
+
+When something goes wrong, `agent-loop` prints a one-line description followed
+by a hint on how to fix it, instead of a Python traceback:
+
+```
+error: State file not found: plan_checkpoints.json
+  hint: Generate one with 'agent-loop init "Describe your feature"', or point at an existing file with --state PATH.
+```
+
+Exit codes: `0` success, `1` the loop halted for human review, `2` an error,
+`130` interrupted with Ctrl-C (re-run the same command to resume). Set
+`AGENT_LOOP_DEBUG=1` to also print the full traceback, which is useful when
+reporting a bug.
+
 ## Generating a plan (`agent-loop init`)
 
 `agent-loop init` turns a feature description into a schema-valid `plan_checkpoints.json`

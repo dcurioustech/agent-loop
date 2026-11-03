@@ -27,13 +27,28 @@ def _log_commit_statement(*, message: str, status: str, commit_hash: str | None)
 
 
 def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, check=check)
+    """Run a git command, turning failures into a readable `GitError`.
+
+    A bare `CalledProcessError` only says "returned non-zero exit status 128",
+    which hides git's own explanation (e.g. "pathspec did not match", "Please
+    tell me who you are"). Surface git's stderr instead.
+    """
+    try:
+        res = subprocess.run(args, capture_output=True, text=True)
+    except FileNotFoundError as e:
+        raise GitError(f"'{args[0]}' is not installed or not on PATH") from e
+    if check and res.returncode != 0:
+        detail = (res.stderr or res.stdout or "").strip()
+        cmd = " ".join(args[:2])
+        msg = f"'{cmd}' failed (exit code {res.returncode})"
+        raise GitError(f"{msg}: {detail}" if detail else msg)
+    return res
 
 
 def repo_root() -> Path:
     res = _run(["git", "rev-parse", "--show-toplevel"], check=False)
     if res.returncode != 0:
-        raise GitError("Not a git repository")
+        raise GitError("Not a git repository (or any parent directory)")
     return Path(res.stdout.strip())
 
 
