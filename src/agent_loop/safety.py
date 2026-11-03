@@ -70,25 +70,49 @@ def require_auto_mode_gates(providers: list[Provider]) -> None:
     raise AutoModeGateError("\n".join(lines))
 
 
+class LogWriteError(OSError):
+    """Writing to the run log failed after the terminal copy was written.
+
+    Raised by `Tee` so callers can tell "the user saw it, only the log copy is
+    missing" apart from "nothing was written at all".
+    """
+
+
+class Tee:
+    """Write to a terminal stream first, then mirror to one or more log streams."""
+
+    def __init__(self, terminal, *logs):
+        self.terminal = terminal
+        self.logs = logs
+
+    @property
+    def streams(self):
+        return (self.terminal, *self.logs)
+
+    def write(self, data):
+        n = self.terminal.write(data)
+        for log in self.logs:
+            try:
+                log.write(data)
+            except OSError as e:
+                raise LogWriteError(e.errno, e.strerror, getattr(log, "name", None)) from e
+        return n
+
+    def flush(self):
+        self.terminal.flush()
+        for log in self.logs:
+            try:
+                log.flush()
+            except OSError as e:
+                raise LogWriteError(e.errno, e.strerror, getattr(log, "name", None)) from e
+
+
 def tee_stdout_to(log_path: Path) -> None:
     """Mirror stdout+stderr to a log file in addition to the terminal."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_fh = open(log_path, "a", buffering=1)
-
-    class _Tee:
-        def __init__(self, *streams):
-            self.streams = streams
-
-        def write(self, data):
-            for s in self.streams:
-                s.write(data)
-
-        def flush(self):
-            for s in self.streams:
-                s.flush()
-
-    sys.stdout = _Tee(sys.stdout, log_fh)
-    sys.stderr = _Tee(sys.stderr, log_fh)
+    sys.stdout = Tee(sys.stdout, log_fh)
+    sys.stderr = Tee(sys.stderr, log_fh)
 
 
 def default_log_dir() -> Path:

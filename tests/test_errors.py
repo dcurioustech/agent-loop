@@ -212,3 +212,102 @@ def test_cli_run_reports_git_error_from_loop(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "error: git: Not a git repository" in err
     assert "git init" in err
+
+
+# ---------------------------------------------------------------------------
+# Reporting through an unwritable run log
+# ---------------------------------------------------------------------------
+
+
+class _FullDisk:
+    name = "loop.log"
+
+    def write(self, _data):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def flush(self):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+
+class _Terminal:
+    def __init__(self):
+        self.text = ""
+
+    def write(self, data):
+        self.text += data
+        return len(data)
+
+    def flush(self):
+        pass
+
+
+def test_report_survives_full_run_log_without_duplicating(monkeypatch):
+    """Terminal copy already written, log copy fails: no raise, printed once."""
+    from agent_loop.safety import Tee
+
+    terminal = _Terminal()
+    monkeypatch.setattr(errors.sys, "stderr", Tee(terminal, _FullDisk()))
+    errors.report(git_ops.GitError("boom"))
+    assert terminal.text.count("error: git: boom") == 1
+    assert errors.fail("bad", "fix it") == 2
+    assert "error: bad\n  hint: fix it\n" in terminal.text
+
+
+def test_report_falls_back_to_process_stderr_when_stream_fails(monkeypatch):
+    fallback = _Terminal()
+    monkeypatch.setattr(errors.sys, "__stderr__", fallback)
+    errors.report(git_ops.GitError("boom"), stream=_FullDisk())
+    assert "error: git: boom" in fallback.text
+
+
+def test_cli_returns_2_when_run_log_fills_up(tmp_path, monkeypatch):
+    """The scenario from review: an error raised mid-run with the log tee'd to a full disk."""
+    from agent_loop.safety import Tee
+
+    terminal = _Terminal()
+    plan = tmp_path / "plan_checkpoints.json"
+    plan.write_text(
+        json.dumps(
+            {
+                "plan_file": "p.md",
+                "branch": "feature-x",
+                "checkpoints": [
+                    {
+                        "id": "a",
+                        "name": "n",
+                        "status": "pending",
+                        "scope": "s",
+                        "exit_criteria": ["e"],
+                        "attempts": 0,
+                        "review_notes": "",
+                    }
+                ],
+            }
+        )
+    )
+
+    class _P:
+        name = "fake"
+        model = None
+        auto_mode_enabled = True
+
+        def preflight(self):
+            pass
+
+    def full_disk_tee(_path):
+        monkeypatch.setattr(cli.sys, "stdout", Tee(terminal, _FullDisk()))
+        monkeypatch.setattr(cli.sys, "stderr", Tee(terminal, _FullDisk()))
+
+    def loop_fails(**_k):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(cli, "get_provider", lambda *_a: _P())
+    monkeypatch.setattr(cli.safety, "tee_stdout_to", full_disk_tee)
+    monkeypatch.setattr(cli, "run_loop", loop_fails)
+    monkeypatch.setenv("LOCK_DIR", str(tmp_path / "lock"))
+
+    # The banner print after tee setup also hits the full log; that must not
+    # escape either.
+    rc = cli.main(["run", "--state", str(plan), "--log-dir", str(tmp_path / "logs")])
+    assert rc == 2
+    assert "No space left on device" in terminal.text

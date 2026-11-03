@@ -24,7 +24,7 @@ from .git_ops import GitError
 from .orchestrator import LoopHalted
 from .plan_init import PlanOutputParseError, ProviderExecutionError, StateFileExistsError
 from .providers.base import ProviderError
-from .safety import AutoModeGateError, LockHeld
+from .safety import AutoModeGateError, LockHeld, LogWriteError
 from .state import (
     CheckpointNotFound,
     DuplicateCheckpointError,
@@ -212,22 +212,56 @@ def format_error(exc: BaseException, context: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
+def _emit(text: str, stream: Optional[TextIO]) -> None:
+    """Write `text` to `stream`, falling back to the real terminal if that fails.
+
+    Once a run starts, `sys.stderr` is a `safety.Tee` that also writes to the
+    run log. If that log is unwritable (disk full, permissions), writing an
+    error message through it would raise again and escape the CLI's catch-all.
+    Error reporting must never be the thing that crashes, so:
+
+    - `LogWriteError`: the terminal copy was already written, only the log
+      copy failed. Nothing more to do (retrying would print it twice).
+    - any other `OSError`: nothing reached the user; retry on the original
+      process stderr.
+    """
+    stream = stream if stream is not None else sys.stderr
+    if not text.endswith("\n"):
+        text += "\n"
+    try:
+        stream.write(text)
+        stream.flush()
+        return
+    except LogWriteError:
+        return
+    except OSError:
+        pass
+    fallback = sys.__stderr__
+    if fallback is None or fallback is stream:
+        return
+    try:
+        fallback.write(text)
+        fallback.flush()
+    except OSError:
+        pass
+
+
 def report(
     exc: BaseException,
     context: Optional[str] = None,
     stream: Optional[TextIO] = None,
 ) -> None:
     """Print a friendly description of `exc` (and, in debug mode, its traceback)."""
-    stream = stream if stream is not None else sys.stderr
+    text = format_error(exc, context)
     if debug_enabled():
-        traceback.print_exception(type(exc), exc, exc.__traceback__, file=stream)
-    print(format_error(exc, context), file=stream)
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        text = tb + text
+    _emit(text, stream)
 
 
 def fail(message: str, *hints: str, stream: Optional[TextIO] = None) -> int:
     """Print a plain error with optional hints and return exit code 2."""
-    stream = stream if stream is not None else sys.stderr
-    print(f"error: {message}", file=stream)
-    for h in hints:
-        print(f"  hint: {h}", file=stream)
+    lines = [f"error: {message}"]
+    lines.extend(f"  hint: {h}" for h in hints)
+    _emit("\n".join(lines), stream)
     return 2
