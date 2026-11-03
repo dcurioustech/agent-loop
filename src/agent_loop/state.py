@@ -133,9 +133,17 @@ def load_state(path: Path | str) -> PlanState:
     if not path.is_file():
         raise InvalidPlanState(f"State file not found: {path}")
     try:
-        raw = json.loads(path.read_text())
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        reason = getattr(e, "strerror", None) or str(e)
+        raise InvalidPlanState(f"Cannot read state file {path}: {reason}") from e
+    try:
+        raw = json.loads(text)
     except json.JSONDecodeError as e:
-        raise InvalidPlanState(f"State file is not valid JSON: {e}") from e
+        raise InvalidPlanState(
+            f"State file {path} is not valid JSON: {e.msg} "
+            f"(line {e.lineno}, column {e.colno})"
+        ) from e
 
     validate_payload(raw)
     return PlanState(
